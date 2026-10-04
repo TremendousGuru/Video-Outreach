@@ -48,29 +48,69 @@ rebuild**, though it survives sleep cycles.
 
 ## Option 1 — Hugging Face Spaces (recommended)
 
+### Where the password goes — read this first
+
+**Your app password belongs in a Space secret, never in a file.** On the free
+tier a Space is **public**: anyone can read every file in it. So:
+
+- A password written into a file = published to the world = no protection at all.
+- A password stored as a **secret** = injected as an environment variable at
+  runtime, invisible to visitors.
+
+> Space → **Settings** → **Variables and secrets** → **New secret**
+> Name `APP_PASSWORD`, Value your password → **Save**
+
+The Space restarts and picks it up. Same place for `OPENAI_API_KEY` if you want
+model-written messages instead of templates.
+
+### Setting it up
+
 1. Create an account at [huggingface.co](https://huggingface.co) — no card needed.
-2. **New** → **Space**.
+2. **New** → **Space**:
    - Name: `video-outreach`
-   - **SDK: Docker** (not Gradio or Streamlit)
+   - **SDK: Docker** — not Gradio or Streamlit
    - Hardware: **CPU basic** (free)
    - Visibility: Public (free Spaces can't be private)
-3. **Settings → Repository** — you can push this repo's files up via the web UI,
-   or use Git:
+3. Publish this project into the Space. Either:
+
+   **With the script** (Termux, a computer, or any shell):
    ```bash
-   git remote add hf https://huggingface.co/spaces/YOURNAME/video-outreach
-   git push hf main
+   export HF_TOKEN=hf_xxx      # token with WRITE access
+   ./deploy-space.sh https://huggingface.co/spaces/YOURNAME/video-outreach
    ```
-   Spaces deploy from a Git push, so the Dockerfile in this repo is all it needs.
-4. **Settings → Variables and secrets** — add these **as Secrets**:
-   | Name | Value |
-   |---|---|
-   | `APP_PASSWORD` | a long password you choose |
-   | `OPENAI_API_KEY` | optional |
-5. The Space builds. First build takes 3–5 minutes. Your URL is
+   It syncs the files, builds the Space's `README.md` with the required
+   frontmatter, and preserves the Space's own title, emoji and colours.
+
+   **Or by hand** via the Space's **Files → Add file → Upload files**. Upload
+   everything except `.git`, `outreach.db` and `.env` — and make sure
+   `space-README.md` is uploaded **as `README.md`**, because that file's
+   frontmatter (`sdk: docker`, `app_port: 7860`) is what tells Hugging Face how
+   to build.
+
+4. **Add `APP_PASSWORD` as a secret** (see above).
+5. First build takes 3–5 minutes. Your URL is
    `https://YOURNAME-video-outreach.hf.space`.
 
-The Dockerfile already handles the one non-obvious requirement: **Spaces requires
-the app to listen on port 7860**, and it's configured to do exactly that.
+### Sign in via the direct URL, not the embedded view
+
+Open the Space from **`https://YOURNAME-NAME.hf.space`**, not through the
+huggingface.co page that frames it. Browsers block session cookies inside
+embedded frames, so logging in on the huggingface.co view appears to silently do
+nothing. The login page tells you the direct address if you land there by
+mistake.
+
+### Automatic deploys (optional)
+
+A GitHub Action is included that republishes the Space on every push to `main`.
+It stays a silent no-op until you add two things in GitHub → **Settings →
+Secrets and variables → Actions**:
+
+| Type | Name | Value |
+|---|---|---|
+| Secret | `HF_TOKEN` | a Hugging Face token with write access |
+| Variable | `SPACE_REPO` | `https://huggingface.co/spaces/YOURNAME/video-outreach` |
+
+Then `git push` → GitHub → Space rebuilds. Nothing to remember.
 
 ---
 
@@ -167,9 +207,19 @@ change that makes *any* free host safe. Say the word if you want it.
 
 ## Do this before you go live
 
-1. **Set `APP_PASSWORD`.** Free hosting makes your app publicly reachable the
-   moment it deploys. Unset `APP_PASSWORD` means no login at all.
-2. **Make the GitHub repo private** if you haven't. A public Space publishes the
-   code too.
+1. **Set `APP_PASSWORD` as a secret, not in a file.** Free hosting makes your app
+   publicly reachable the moment it deploys, and an unset password means no login
+   at all. Never commit it — a public Space serves every file to the world.
+2. **Use the direct `.hf.space` URL** for signing in, not the embedded view.
 3. **Take a backup** once you have a real lead list worth keeping.
 4. **Start with 5 stores**, read the messages, tune the wording, then run the rest.
+
+## Changing your password later
+
+Update the `APP_PASSWORD` secret and the Space restarts. **Every existing session
+is invalidated immediately** — the session cookie is derived from the password, so
+changing it logs everyone out. That's a feature: if you ever suspect someone got
+in, change the password and they're out.
+
+You can also use a longer password than you'd type on a laptop — it only has to be
+entered once per device, and the cookie lasts 30 days.

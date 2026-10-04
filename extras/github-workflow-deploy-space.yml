@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# TO ENABLE THIS WORKFLOW
+#
+# It lives here rather than in .github/workflows/ on purpose: GitHub refuses to
+# let a Personal Access Token write into .github/workflows/ unless the token has
+# the extra "Workflows" permission. Keeping it here means normal pushes keep
+# working.
+#
+# It works as-is once moved. In the GitHub web UI:
+#   Add file -> Create new file
+#   Name it exactly: .github/workflows/deploy-space.yml
+#   Paste this file's contents, then Commit changes.
+#
+# Then set, under Settings -> Secrets and variables -> Actions:
+#   Secret   HF_TOKEN      a Hugging Face token with WRITE access
+#   Variable SPACE_REPO    https://huggingface.co/spaces/YOURNAME/YOUR-SPACE
+#
+# Until both exist it prints a notice and exits green - it will not fail builds.
+# ---------------------------------------------------------------------------
+
+# Optional: push to GitHub -> the Hugging Face Space rebuilds automatically.
+#
+# Off by default. It stays a harmless no-op until you create two things in
+# GitHub (Settings -> Secrets and variables -> Actions):
+#
+#   Secret   HF_TOKEN      a Hugging Face token with WRITE access
+#   Variable SPACE_REPO    https://huggingface.co/spaces/YOURNAME/YOUR-SPACE
+#
+# Until both exist, every run prints a notice and exits green - no failed
+# builds cluttering your repo.
+
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Are the deploy credentials configured?
+        id: guard
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_REPO: ${{ vars.SPACE_REPO }}
+        run: |
+          if [ -z "${HF_TOKEN}" ] || [ -z "${SPACE_REPO}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Space deploy skipped::Set the HF_TOKEN secret and the SPACE_REPO variable to enable automatic deploys."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.ready == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML (used to validate the Space frontmatter)
+        if: steps.guard.outputs.ready == 'true'
+        run: pip install --quiet pyyaml
+
+      - name: Publish to the Space
+        if: steps.guard.outputs.ready == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_REPO: ${{ vars.SPACE_REPO }}
+        run: |
+          git config --global user.email "github-actions@users.noreply.github.com"
+          git config --global user.name "GitHub Actions"
+          ./deploy-space.sh "$SPACE_REPO"

@@ -176,7 +176,14 @@ Included blueprints and config:
 render-free.yaml   Render, free plan - no disk (use this on free)
 render.yaml        Render, paid plan - with a 1 GB persistent disk
 Dockerfile         Hugging Face Spaces and any Docker host (port 7860)
+space-README.md    the Space's README - its frontmatter is what makes it build
+deploy-space.sh    publish to a Space, preserving its title/emoji/colours
+.github/workflows/deploy-space.yml   optional: push to GitHub -> Space redeploys
 ```
+
+**Never put `APP_PASSWORD` in a file.** Free Spaces are public, so a password
+committed there protects nothing. It belongs in the host's secret/environment
+settings, where the app reads it at runtime.
 
 It also refuses to crawl private/internal addresses, so a lead list containing
 `169.254.169.254` or an internal hostname can't make the server probe its own

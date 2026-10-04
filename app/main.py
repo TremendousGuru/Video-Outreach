@@ -46,6 +46,20 @@ async def auth_gate(request: Request, call_next):
 def _login_page(error: str = "") -> str:
     e = html.escape
     msg = f'<p class="err">{e(error)}</p>' if error else ""
+
+    # Hugging Face serves Spaces inside an iframe on huggingface.co, and browsers
+    # refuse to store or send our session cookie in that cross-site context. The
+    # sign-in appears to do nothing. Point people at the direct URL instead.
+    tip = ""
+    space_host = (os.environ.get("SPACE_HOST") or "").strip()
+    if space_host:
+        tip = (
+            '<p class="tip">Tip: if you opened this inside huggingface.co, sign-in '
+            "won't stick there. Use the direct address instead:<br>"
+            f'<a href="https://{e(space_host)}">https://{e(space_host)}</a></p>'
+        )
+    elif os.environ.get("RENDER"):
+        tip = ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -65,6 +79,8 @@ def _login_page(error: str = "") -> str:
             font-weight:700; font-size:15px; cursor:pointer; }}
   .err {{ background:#2a1010; border:1px solid #7f1d1d; color:#fca5a5; padding:10px; border-radius:9px;
           font-size:13px; margin:0 0 14px; }}
+  .tip {{ color:#8b95a5; font-size:12px; margin:14px 0 0; line-height:1.5; word-break:break-all; }}
+  .tip a {{ color:#5eead4; }}
 </style></head>
 <body>
   <form method="post" action="/login">
@@ -73,6 +89,7 @@ def _login_page(error: str = "") -> str:
     {msg}
     <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
     <button type="submit">Sign in</button>
+    {tip}
   </form>
 </body></html>"""
 
