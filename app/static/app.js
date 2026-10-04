@@ -3,7 +3,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { leads: [], selected: new Set(), current: null, runId: null, es: null, settings: {} };
+const state = { leads: [], selected: new Set(), current: null, runId: null, es: null, settings: {}, session: null };
 const STATUS_LABEL = {
   pending: "queued", crawling: "crawling", crawled: "crawled", composing: "writing",
   ready: "ready", sent: "sent", failed: "failed",
@@ -462,6 +462,7 @@ function init() {
 
   refresh();
   loadSettings();
+  loadSession().then(resumeRunningRun);
 }
 
 function scopeStatuses() {

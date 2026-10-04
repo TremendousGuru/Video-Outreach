@@ -152,6 +152,29 @@ your mail client.
 
 ---
 
+## Deploying it (Render)
+
+Built as a local tool, so two things change when it goes on a public URL — see
+**[DEPLOY-RENDER.md](DEPLOY-RENDER.md)** for the full walkthrough:
+
+1. **Set `APP_PASSWORD`.** With it set you get a login page and every route is
+   protected. Leave it unset and the app runs open, like it does on your laptop.
+   `/health` tells you which mode you're in.
+2. **Mount a disk.** Render's free plan can't attach one, so `outreach.db` is
+   wiped on every deploy. Point `OUTREACH_DB` inside a mounted disk
+   (`/var/data/outreach.db`), or the app shows a warning banner in the header.
+
+A blueprint is included:
+
+```bash
+# Render dashboard -> New -> Blueprint -> pick this repo
+# it reads render.yaml, then asks you for APP_PASSWORD
+```
+
+It also refuses to crawl private/internal addresses, so a lead list containing
+`169.254.169.254` or an internal hostname can't make the server probe its own
+network.
+
 ## No web server? Use CLI mode
 
 If the web UI won't run — on a phone, a cheap laptop, a locked-down machine —

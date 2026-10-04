@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import html
 import io
 import json
 import os
@@ -10,15 +11,104 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 
+from . import auth
 from . import compose as composer
 from . import crawler, db, ingest, pipeline
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="Shopify Outreach Studio", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+
+# Paths reachable without signing in. Static files carry no secrets, /health is
+# for the host's health checker, and the login endpoints are how you get in.
+PUBLIC_PATHS = ("/health", "/login", "/logout", "/favicon.ico")
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    if not auth.auth_enabled():
+        return await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") or path in PUBLIC_PATHS:
+        return await call_next(request)
+    if auth.token_is_valid(request.cookies.get(auth.COOKIE_NAME)):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Not signed in. Reload the page and log in."}, status_code=401)
+    return RedirectResponse("/login", status_code=302)
+
+
+def _login_page(error: str = "") -> str:
+    e = html.escape
+    msg = f'<p class="err">{e(error)}</p>' if error else ""
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outreach Studio - sign in</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  body {{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#0b0d10; color:#e6e9ee; font:16px/1.5 -apple-system,Roboto,Helvetica,Arial,sans-serif; }}
+  form {{ background:#12151a; border:1px solid #232932; border-radius:14px; padding:26px;
+          width:min(360px,90vw); }}
+  h1 {{ font-size:17px; margin:0 0 4px; }}
+  p.sub {{ color:#8b95a5; font-size:13px; margin:0 0 18px; }}
+  input {{ width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid #2e3641;
+           background:#0e1116; color:#e6e9ee; font-size:16px; margin-bottom:12px; }}
+  input:focus {{ outline:none; border-color:#5eead4; }}
+  button {{ width:100%; padding:13px; border:0; border-radius:10px; background:#5eead4; color:#052e2b;
+            font-weight:700; font-size:15px; cursor:pointer; }}
+  .err {{ background:#2a1010; border:1px solid #7f1d1d; color:#fca5a5; padding:10px; border-radius:9px;
+          font-size:13px; margin:0 0 14px; }}
+</style></head>
+<body>
+  <form method="post" action="/login">
+    <h1>Outreach Studio</h1>
+    <p class="sub">Enter the password you set for this deployment.</p>
+    {msg}
+    <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+    <button type="submit">Sign in</button>
+  </form>
+</body></html>"""
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_form(request: Request):
+    if not auth.auth_enabled() or auth.token_is_valid(request.cookies.get(auth.COOKIE_NAME)):
+        return RedirectResponse("/", status_code=302)
+    return HTMLResponse(_login_page())
+
+
+@app.post("/login")
+async def login_submit(request: Request, password: str = Form(default="")):
+    if not auth.auth_enabled():
+        return RedirectResponse("/", status_code=302)
+    ip = (request.client.host if request.client else "?") or "?"
+    if auth.too_many_attempts(ip):
+        return HTMLResponse(_login_page("Too many attempts. Wait five minutes."), status_code=429)
+    if not auth.password_is_correct(password):
+        auth.record_attempt(ip)
+        return HTMLResponse(_login_page("Wrong password."), status_code=401)
+    auth.clear_attempts(ip)
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie(
+        auth.COOKIE_NAME, auth.session_token(), httponly=True, samesite="lax",
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+        max_age=60 * 60 * 24 * 30, path="/",
+    )
+    return resp
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    resp = RedirectResponse("/login", status_code=302)
+    resp.delete_cookie(auth.COOKIE_NAME, path="/")
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -28,7 +118,43 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "leads": len(db.list_leads())}
+    return {
+        "ok": True,
+        "auth": "enabled" if auth.auth_enabled() else "open",
+        "hosted": auth.hosted_mode(),
+        "leads": len(db.list_leads()),
+    }
+
+
+@app.get("/api/session")
+async def session_info(request: Request):
+    """What the UI needs to know about its own session."""
+    return {
+        "auth_required": auth.auth_enabled(),
+        "signed_in": auth.token_is_valid(request.cookies.get(auth.COOKIE_NAME)) if auth.auth_enabled() else True,
+        "hosted": auth.hosted_mode(),
+        "db_path": str(db.DB_PATH),
+        "warning": "" if not auth.hosted_mode() else persistence_warning(),
+    }
+
+
+def persistence_warning() -> str:
+    """Warn when the database looks like it's on the container's ephemeral disk.
+
+    Render only attaches a disk if you mount one; without it every deploy wipes
+    the database. We can't detect a mount with certainty, so: trust an explicit
+    OUTREACH_PERSISTENT=1, otherwise assume persistence for the usual mount
+    paths, and warn for anything else that isn't a local dev directory.
+    """
+    if os.environ.get("OUTREACH_PERSISTENT") == "1":
+        return ""
+    path = os.path.abspath(str(db.DB_PATH))
+    if path.startswith(("/var/data/", "/data/", "/mnt/", "/opt/render/project/data/")):
+        return ""
+    return (
+        f"The database is at {path}, which is not a mounted disk. "
+        "Every deploy or restart will wipe your leads and messages."
+    )
 
 
 # ------------------------------------------------------------------ settings
@@ -213,6 +339,18 @@ async def start_crawl(payload: dict[str, Any] = Body(default={})):
         raise HTTPException(400, "Some rows no longer exist. Refresh the page.")
     run = pipeline.start_run(ids, db.load_settings())
     return run.snapshot()
+
+
+# NOTE: declared before /api/run/{run_id} on purpose - FastAPI matches routes in
+# declaration order, so the catch-all would otherwise swallow "current".
+@app.get("/api/run/current")
+async def run_current():
+    """Lets a page that refreshed mid-run reattach instead of making you guess."""
+    live = [r for r in pipeline.RUNNING.values() if not r.finished]
+    if not live:
+        return {"state": "idle"}
+    run = live[-1]
+    return {"state": "running", **run.snapshot()}
 
 
 @app.get("/api/run/{run_id}")

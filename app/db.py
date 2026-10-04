@@ -12,6 +12,17 @@ DB_PATH = os.environ.get(
     "OUTREACH_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outreach.db")
 )
 
+
+def _ensure_parent_dir(path: str) -> None:
+    """A mounted volume (e.g. Render's /var/data) exists but nested paths may not.
+    sqlite3 will not create the directory for us."""
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent and not os.path.isdir(parent):
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError:
+            pass
+
 _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
@@ -74,6 +85,7 @@ def conn() -> sqlite3.Connection:
     global _conn
     with _lock:
         if _conn is None:
+            _ensure_parent_dir(DB_PATH)
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.execute("PRAGMA journal_mode=WAL")

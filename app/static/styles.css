@@ -120,6 +120,13 @@ tr.empty td{color:var(--muted);text-align:center;padding:34px 10px}
   padding:5px 8px;border-radius:8px}
 .iconbtn:hover{color:var(--accent);border-color:var(--line2);background:var(--panel2)}
 .foot{color:var(--muted);font-size:12px;text-align:center;padding:6px 0 26px}
+.notice{border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--muted)}
+.notice b{color:var(--text)}
+.notice.warn{border-color:#6b4a12;background:#2a1e08;color:var(--warn)}
+.notice.warn b{color:#fde68a}
+.notice.info{border-color:#1f4d6b;background:#0d1f2b;color:#93c5fd}
+.notice.info b{color:#bfdbfe}
 
 /* ---------- modal ---------- */
 .modal{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;

@@ -1,0 +1,55 @@
+# Render blueprint. Point Render at this repo and it reads these settings.
+#
+#   plan: starter   required for a persistent disk. The free plan cannot attach
+#                   one, so your database is wiped on every deploy and the
+#                   service sleeps after 15 minutes idle.
+#
+# numInstances is deliberately 1: crawl runs and their progress streams live in
+# the process's memory. Two instances would split the work across separate
+# memories and the UI would show half a run.
+
+services:
+  - type: web
+    name: video-outreach
+    runtime: python
+    plan: starter
+    numInstances: 1
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    # --proxy-headers makes the app trust X-Forwarded-* from Render's proxy,
+    # which is what marks the session cookie Secure over HTTPS.
+    startCommand: >-
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --proxy-headers
+      --forwarded-allow-ips="*"
+      --timeout-keep-alive 640
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+
+      # The password that protects your deployment. Set it in the Render
+      # dashboard - sync:false means it is never stored in this file.
+      - key: APP_PASSWORD
+        sync: false
+
+      # Your AI key, optional. Leave unset to write from templates.
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Where SQLite lives. Must be inside the disk mountPath below, or the
+      # database is thrown away on every deploy.
+      - key: OUTREACH_DB
+        value: /var/data/outreach.db
+
+      - key: OUTREACH_HOSTED
+        value: "1"
+
+    disk:
+      name: outreach-data
+      mountPath: /var/data
+      sizeGB: 1

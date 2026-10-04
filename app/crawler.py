@@ -241,6 +241,49 @@ def find_emails(html: str, host: str = "") -> list[str]:
     return found[:5]
 
 
+def is_internal_host(host: str) -> tuple[bool, str]:
+    """Block the crawler from being pointed at private/internal addresses.
+
+    On a public host, a CSV row containing "169.254.169.254" (cloud metadata) or
+    an internal service name would otherwise make the server fetch its own
+    network on the uploader's behalf. Returns (blocked, reason).
+    """
+    h = (host or "").strip().lower().strip("[]")
+    if not h:
+        return True, "empty host"
+    if h in {"localhost", "localhost.localdomain", "metadata", "metadata.google.internal"}:
+        return True, "internal hostname"
+    if h.endswith((".local", ".internal", ".localhost")):
+        return True, "internal hostname"
+
+    import ipaddress
+    import socket
+
+    def blocked_ip(ip_str: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        return bool(
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        )
+
+    if blocked_ip(h):
+        return True, f"{h} is a private address"
+
+    try:
+        infos = socket.getaddrinfo(h, None, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError):
+        # Can't resolve - let the fetch fail naturally with its own error.
+        return False, ""
+    for info in infos:
+        addr = info[4][0]
+        if blocked_ip(addr):
+            return True, f"{h} resolves to a private address ({addr})"
+    return False, ""
+
+
 def detect_shopify(html: str, meta: dict | None) -> bool:
     if meta and meta.get("myshopify_domain"):
         return True
@@ -536,6 +579,11 @@ async def crawl_store(fetcher: Fetcher, lead: dict, settings: dict) -> dict:
     }
     if not domain:
         result["error"] = "no usable domain"
+        return result
+
+    blocked, why = await asyncio.to_thread(is_internal_host, domain)
+    if blocked:
+        result["error"] = f"refusing to crawl: {why}"
         return result
 
     max_pages = int(settings.get("max_pages", 5) or 5)
