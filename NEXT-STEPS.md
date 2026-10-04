@@ -228,11 +228,29 @@ format, so switching is three lines in Secrets and nothing else changes. Easiest
 of all: sidebar → **Writing** → **Provider**, pick one, then put its key in
 Secrets.
 
-| Provider | Free tier | Where to get a key |
-|---|---|---|
-| **Groq** | 30 requests/min, ~1,000/day — the most generous | [console.groq.com](https://console.groq.com/keys) |
-| **GitHub Models** | ~15/min, 50–150/day, uses the GitHub account you already have | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| OpenRouter | 20/min, 50/day on `:free` models | [openrouter.ai/keys](https://openrouter.ai/keys) |
+> **First, mind the names — these are two different companies:**
+>
+> | | What it is | Free API? |
+> |---|---|---|
+> | **Grok** | xAI's chatbot (Musk). Spelling: one `o`. | **No.** Only ~$25 of trial credits, then pay-per-token |
+> | **Groq** | An inference company running open models on its own LPU chips. Spelling: two `o`s. | Free tier, by their docs |
+>
+> If you were reading about **Grok**, you are right — its API has no free tier,
+> and it was never one of my suggestions. My suggestion was **Groq**.
+
+Free tiers move constantly, and I am quoting secondhand numbers, so **check before
+you invest time**: the app's **Test the key** button is the real answer, and each
+provider's console shows your own live limits.
+
+| Provider | Free tier | Confidence | Where to get a key |
+|---|---|---|---|
+| **GitHub Models** | 10–15 req/min, 50–150/day, uses the GitHub account you already have | Verified in GitHub's own docs | [github.com/settings/tokens](https://github.com/settings/tokens) |
+| **Groq** | Makes a free tier available, no card — *but their rate-limit page labels its table "base limits for the Developer plan"*, so the exact free numbers are unclear | **Unverified — check their console** | [console.groq.com/keys](https://console.groq.com/keys) |
+| OpenRouter | `:free` models, ~20/min, 50/day | Reported, unverified | [openrouter.ai/keys](https://openrouter.ai/keys) |
+
+**GitHub Models carries a real caveat:** its free tier terms restrict use to
+*prototyping and experimentation*. Running a business tool on it is a grey area,
+so treat it as a way to try the AI writing, not a long-term home for it.
 
 For Groq, paste this into Secrets instead of the Gemini lines:
 
@@ -250,6 +268,13 @@ OPENAI_API_KEY = "github_pat_..."
 OPENAI_BASE_URL = "https://models.github.ai/inference"
 OPENAI_MODEL = "openai/gpt-4o-mini"
 ```
+
+**The one option that cannot be taken away: no key at all.** Without any API
+key the app still reads every store and still writes each message - from its
+templates instead of a model. It is guaranteed free, needs no signup, and cannot
+be rate-limited or flagged. The messages are more formulaic, but they are built
+from the real facts found on each store. Run your list that way, and turn a model
+on later, once one works for you.
 
 Whichever you pick, press **Test the key** again. The app also prints the models
 your key can actually use if the one you named isn't available.
