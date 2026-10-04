@@ -1,7 +1,9 @@
 # Deploying for free (verified October 2026)
 
-The short version: **Render's free tier still exists and works, but Hugging Face
-Spaces is the better free host for this particular app.** Everything else died.
+The short version: **Hugging Face Spaces is still the roomiest free host, but only
+through its Streamlit SDK** — as of July 2026 the Docker and Gradio SDKs ask for a
+PRO subscription at Space creation. **Streamlit Community Cloud** is the other
+strong free option and is the easiest to redeploy. Both are covered below.
 
 ---
 
@@ -9,8 +11,9 @@ Spaces is the better free host for this particular app.** Everything else died.
 
 | Host | Free tier status | Verdict for this app |
 |---|---|---|
+| **Hugging Face Spaces** | Free CPU: **2 vCPU / 16 GB RAM**, ~50 GB disk — but **Streamlit SDK only**; Docker and Gradio now require PRO | **Still the best free capacity.** Sleeps after **48 hrs** |
+| **Streamlit Community Cloud** | Free public apps, ~1 GB RAM | **Easiest to redeploy** — builds straight from your GitHub repo. Sleeps after **12 hrs** |
 | **Render** | Free web service, 750 hrs/mo, no card | Works. Sleeps after **15 min**, **no disk** |
-| **Hugging Face Spaces** | Free CPU: **2 vCPU / 16 GB RAM**, ~50 GB disk | **Best free option.** Sleeps after **48 hrs** |
 | Railway | No permanent free tier — one-off $5 trial, then ~$1/mo credit | Not viable |
 | Fly.io | No free tier for new users — ~2 hour trial | Not viable |
 | Heroku | Free plans removed in 2022 | Not viable |
@@ -18,7 +21,26 @@ Spaces is the better free host for this particular app.** Everything else died.
 | Vercel / Netlify / Cloudflare Pages | Free, always on — but static/serverless only | Can't run a crawl |
 
 Sources: [Render's own comparison](https://render.com/articles/platforms-with-a-real-free-tier-for-developers-in-2026),
-[a 2026 free-tier survey](https://livemy.app/blog/free-hosting-that-doesnt-sleep).
+[a 2026 free-tier survey](https://livemy.app/blog/free-hosting-that-doesnt-sleep),
+[Hugging Face's paywall discussion](https://discuss.huggingface.co/t/docker-sdk-now-marked-as-paid-when-creating-a-new-space/177580).
+
+### The July 2026 Hugging Face change
+
+Without an announcement, Hugging Face moved Docker and Gradio Spaces behind a
+subscription. Creating one now fails with:
+
+> Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on
+> free cpu-basic requires a PRO subscription.
+
+Spaces created **before** the change kept running, but new free accounts get
+Streamlit (and static) only. This project therefore ships **two editions**:
+
+| Edition | File | Publishing it |
+|---|---|---|
+| **Streamlit** (free, recommended) | `streamlit_app.py` | `./deploy-space.sh` — the default |
+| FastAPI + Docker (needs a paid Space) | `app/main.py` | `./deploy-space.sh --docker` |
+
+Both run the same crawler and the same composer. Only the interface differs.
 
 **The honest conclusion:** no free host gives you a persistent disk. Every free
 option wipes your database eventually, so the real answer is *make the data
@@ -68,7 +90,7 @@ model-written messages instead of templates.
 1. Create an account at [huggingface.co](https://huggingface.co) — no card needed.
 2. **New** → **Space**:
    - Name: `video-outreach`
-   - **SDK: Docker** — not Gradio or Streamlit
+   - **SDK: Streamlit** — Docker and Gradio now ask for payment
    - Hardware: **CPU basic** (free)
    - Visibility: Public (free Spaces can't be private)
 3. Publish this project into the Space. Either:
@@ -78,26 +100,39 @@ model-written messages instead of templates.
    export HF_TOKEN=hf_xxx      # token with WRITE access
    ./deploy-space.sh https://huggingface.co/spaces/YOURNAME/video-outreach
    ```
-   It syncs the files, builds the Space's `README.md` with the required
-   frontmatter, and preserves the Space's own title, emoji and colours.
+   Streamlit is the default. It swaps `requirements-streamlit.txt` in as the
+   Space's `requirements.txt`, drops the now-unusable `Dockerfile`, writes the
+   Space's `README.md` with `sdk: streamlit` + `app_file: streamlit_app.py`, and
+   preserves the Space's own title, emoji and colours. If the Space was created
+   as Docker back when that was free, this **migrates it in place**.
 
-   **Or by hand** via the Space's **Files → Add file → Upload files**. Upload
-   everything except `.git`, `outreach.db` and `.env` — and make sure
+   **Or by hand** via the Space's **Files → Add file → Upload files**. Upload the
+   project except `.git`, `outreach.db` and `.env` — and make sure
    `space-README.md` is uploaded **as `README.md`**, because that file's
-   frontmatter (`sdk: docker`, `app_port: 7860`) is what tells Hugging Face how
-   to build.
+   frontmatter is what tells Hugging Face how to run it. Also rename
+   `requirements-streamlit.txt` to `requirements.txt` in the Space.
 
 4. **Add `APP_PASSWORD` as a secret** (see above).
-5. First build takes 3–5 minutes. Your URL is
+5. First build takes 2–4 minutes. Your URL is
    `https://YOURNAME-video-outreach.hf.space`.
 
-### Sign in via the direct URL, not the embedded view
+### Signing in
 
-Open the Space from **`https://YOURNAME-NAME.hf.space`**, not through the
-huggingface.co page that frames it. Browsers block session cookies inside
-embedded frames, so logging in on the huggingface.co view appears to silently do
-nothing. The login page tells you the direct address if you land there by
-mistake.
+Use the direct URL **`https://YOURNAME-NAME.hf.space`**. Unlike the FastAPI
+edition — whose session cookie browsers block inside frames — the Streamlit
+edition holds your sign-in in the browser session, so the embedded view on
+huggingface.co works too. The direct URL is just the shorter one to bookmark.
+
+### Coming from the Docker edition
+
+If your Space already runs the FastAPI edition, redeploying with the script
+(default Streamlit mode) rewrites the frontmatter and swaps the requirements
+file, and the Space rebuilds as Streamlit. Two things to expect:
+
+- The old `APP_PASSWORD` secret keeps working — same variable name.
+- The database starts empty, because the rebuild wipes the disk. **Take a backup
+  from the FastAPI edition first** (Backup button), then restore it in the
+  Streamlit edition (tab 4, "Restore from a backup").
 
 ### Automatic deploys (optional)
 
@@ -114,7 +149,46 @@ Then `git push` → GitHub → Space rebuilds. Nothing to remember.
 
 ---
 
-## Option 2 — Render free tier
+## Option 2 — Streamlit Community Cloud (easiest redeploys)
+
+Same app, same repo, and **no build script at all**: it connects to your GitHub
+repo and runs a file you point it at. Every `git push` redeploys automatically.
+
+| | HF Spaces free | Streamlit Cloud free |
+|---|---|---|
+| RAM | 16 GB | ~1 GB |
+| Sleeps after | 48 hours | 12 hours |
+| Deploy | push files to the Space | **connects to your GitHub repo** |
+| Private apps | no (free Spaces are public) | one private app allowed |
+
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+2. **New app** → **Deploy a public app from GitHub**:
+   - Repository: `TremendousGuru/Video-Outreach`
+   - Branch: `main`
+   - **Main file path: `streamlit_app.py`**
+3. **Advanced settings → Secrets**, and paste:
+   ```toml
+   APP_PASSWORD = "your password"
+   ```
+   This is the equivalent of a Space secret. It is never written into the repo.
+4. Deploy. Your URL is `https://SOME-NAME.streamlit.app`.
+
+Notes specific to this host:
+
+- `requirements.txt` is installed as-is. This repo's `requirements.txt` is the
+  FastAPI one, so **point it at the Streamlit dependencies**: either copy
+  `requirements-streamlit.txt` over `requirements.txt` before deploying, or add
+  `streamlit` to `requirements.txt`. Extra packages it doesn't need only cost
+  build time, not money.
+- `st.secrets` is mapped to the app's environment variables automatically, so
+  `APP_PASSWORD` and `OPENAI_API_KEY` work exactly as described above.
+- A **private** app still asks visitors to sign in with Google/GitHub via
+  Streamlit's own gate — put your `APP_PASSWORD` in Secrets as well and you get
+  both layers.
+
+---
+
+## Option 3 — Render free tier
 
 **Use `render-free.yaml`, not `render.yaml`.** The paid blueprint asks for a disk,
 and Render rejects a blueprinted disk on a free instance, so it would fail to
@@ -141,7 +215,7 @@ chunking on free, since a 15-minute idle window can kill a long run.
 
 ---
 
-## Option 3 — keep it local, tunnel when needed
+## Option 4 — keep it local, tunnel when needed
 
 If hosting was really about "use it from my phone", skip the cloud entirely:
 
@@ -162,7 +236,7 @@ that's usually fine.
 
 ---
 
-## Option 4 — the durable fix (needs a small code change)
+## Option 5 — the durable fix (needs a small code change)
 
 Point the database at a **free external Postgres** and the ephemeral-disk problem
 disappears completely — the host can wipe its disk as often as it likes.
@@ -186,7 +260,8 @@ change that makes *any* free host safe. Say the word if you want it.
 
 | Your situation | Do this |
 |---|---|
-| Want the most capacity free, data loss acceptable | **HF Spaces** |
+| Want the most capacity free, data loss acceptable | **HF Spaces** (Streamlit SDK) |
+| Want redeploys to be automatic on every `git push` | **Streamlit Community Cloud** |
 | Already have Render open, want it live in 5 minutes | **Render free** + Backup/Restore before deploys |
 | Want zero data-loss risk and zero cost | **Local + Cloudflare tunnel** |
 | Using it seriously, data must never vanish | Neon free Postgres, then any free host |
@@ -200,7 +275,8 @@ change that makes *any* free host safe. Say the word if you want it.
 | App takes 30–60s to respond, then works | Cold start after sleep | Normal, nothing broken |
 | Leads and messages gone after a deploy | Ephemeral disk on free | **Restore** your backup |
 | Crawl stopped partway, page shows older state | The instance slept or redeployed mid-run | Rows return to the queue; press **Crawl & compose** again |
-| "Could not sign in" on a tab left open | Password changed, or container restarted | Reload and log in again |
+| Signed out with "the password was changed" | The `APP_PASSWORD` secret changed, so old sessions stopped working | Expected — sign in with the new password |
+| "Could not sign in" on a tab left open | The app restarted (sleep or redeploy) | Reload and log in again |
 | Backup download does nothing | Not signed in — the backup holds real emails, so it's auth-gated | Log in first |
 
 ---
@@ -210,16 +286,19 @@ change that makes *any* free host safe. Say the word if you want it.
 1. **Set `APP_PASSWORD` as a secret, not in a file.** Free hosting makes your app
    publicly reachable the moment it deploys, and an unset password means no login
    at all. Never commit it — a public Space serves every file to the world.
-2. **Use the direct `.hf.space` URL** for signing in, not the embedded view.
-3. **Take a backup** once you have a real lead list worth keeping.
-4. **Start with 5 stores**, read the messages, tune the wording, then run the rest.
+2. **Take a backup** once you have a real lead list worth keeping.
+3. **Start with 5 stores**, read the messages, tune the wording, then run the rest.
 
 ## Changing your password later
 
-Update the `APP_PASSWORD` secret and the Space restarts. **Every existing session
-is invalidated immediately** — the session cookie is derived from the password, so
-changing it logs everyone out. That's a feature: if you ever suspect someone got
-in, change the password and they're out.
+Update the `APP_PASSWORD` secret and the app restarts and picks up the new value.
 
-You can also use a longer password than you'd type on a laptop — it only has to be
-entered once per device, and the cookie lasts 30 days.
+**Changing the password signs everyone out**, in both editions. The FastAPI
+edition signs its session cookie with the password; the Streamlit edition keeps a
+fingerprint of the password in the session and compares it on every interaction.
+Either way, a stale session stops working the moment the secret changes — so if
+you ever suspect someone got in, rotate the password and they are out.
+
+Both accept a long password — you type it only once per device. In the FastAPI
+edition a sign-in lasts 30 days; in the Streamlit edition it lasts until the tab
+closes or the app restarts (in practice, the next sleep cycle).

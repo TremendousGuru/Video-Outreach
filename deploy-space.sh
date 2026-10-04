@@ -8,7 +8,18 @@
 #
 #   HF_TOKEN=hf_xxx ./deploy-space.sh https://huggingface.co/spaces/you/space
 #
-# The Space must already exist (create it in the HF UI with SDK = Docker).
+# TWO MODES
+#
+#   --streamlit   (default) publishes streamlit_app.py, and the Space's README
+#                 frontmatter gets sdk: streamlit. This is the free path: as of
+#                 July 2026 Hugging Face charges for the Docker and Gradio SDKs
+#                 on cpu-basic, while the Streamlit SDK is free.
+#
+#   --docker      publishes the FastAPI edition (app/main.py) and forces
+#                 sdk: docker + app_port: 7860. Only works on a PAID Space now,
+#                 so it is kept for anyone who already has one or moves hosts.
+#
+# The Space must already exist. Create it in the HF UI with the matching SDK.
 # This script syncs the project into it and preserves the Space's own settings
 # (title, emoji, colours) unless you pass --reset-frontmatter.
 #
@@ -22,30 +33,43 @@ SRC="$(pwd)"
 SPACE_URL="${1:-}"
 shift || true
 RESET_FRONTMATTER=0
+MODE="streamlit"
 for arg in "$@"; do
   case "$arg" in
     --reset-frontmatter) RESET_FRONTMATTER=1 ;;
+    --streamlit) MODE="streamlit" ;;
+    --docker) MODE="docker" ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [ -z "$SPACE_URL" ]; then
   cat >&2 <<'USAGE'
-Usage: ./deploy-space.sh <space-url> [--reset-frontmatter]
+Usage: ./deploy-space.sh <space-url> [--streamlit | --docker] [--reset-frontmatter]
 
   ./deploy-space.sh https://huggingface.co/spaces/yourname/video-outreach
+
+  --streamlit   (default, free) publishes streamlit_app.py
+  --docker      publishes the FastAPI edition - needs a PAID Space since July 2026
 
 Auth: export HF_TOKEN=hf_xxx   (token with WRITE access, from
       https://huggingface.co/settings/tokens)
 
 The Space must exist first. Create it at https://huggingface.co/new-space with
-SDK = Docker and hardware = CPU basic (free).
+SDK = Streamlit and hardware = CPU basic (free).
 USAGE
   exit 1
 fi
 
 # ------------------------------------------------------------------ preflight
-if [ ! -f Dockerfile ]; then
+if [ "$MODE" = "streamlit" ]; then
+  for f in streamlit_app.py requirements-streamlit.txt space-README.md; do
+    if [ ! -f "$f" ]; then
+      echo "ERROR: $f is missing. Run this from the project root." >&2
+      exit 1
+    fi
+  done
+elif [ ! -f Dockerfile ]; then
   echo "ERROR: no Dockerfile here. Run this from the project root." >&2
   exit 1
 fi
@@ -53,6 +77,13 @@ if [ ! -f space-README.md ]; then
   echo "ERROR: space-README.md is missing - it carries the Space config." >&2
   exit 1
 fi
+
+if [ "$MODE" = "streamlit" ]; then
+  echo "==> Mode: streamlit (free) - publishing streamlit_app.py"
+else
+  echo "==> Mode: docker (paid Space required since July 2026) - publishing app/main.py"
+fi
+
 if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
   echo "WARNING: you have uncommitted changes. They are included here (the script"
   echo "         copies the working tree), but consider committing first so the"
@@ -157,6 +188,16 @@ else
       -cf - . | tar -xf - -C "$WORK/space"
 fi
 
+# Free hosts install from requirements.txt, so in Streamlit mode that file has to
+# be the Streamlit one. Keeping fastapi/uvicorn out of the build also makes it
+# noticeably quicker, which matters on a free CPU.
+if [ "$MODE" = "streamlit" ]; then
+  echo "==> Using requirements-streamlit.txt as requirements.txt"
+  cp "$WORK/space/requirements-streamlit.txt" "$WORK/space/requirements.txt"
+  # A Dockerfile left in the tree makes the build ambiguous - drop it.
+  rm -f "$WORK/space/Dockerfile"
+fi
+
 # ------------------------------------------------------------------- README
 echo "==> Writing the Space README (frontmatter is what makes it build)"
 if [ "$RESET_FRONTMATTER" = "1" ] || [ ! -s "${FRONT:-/nonexistent}" ]; then
@@ -165,18 +206,27 @@ else
   # Keep their title/emoji/colours, force the keys the build depends on.
   {
     echo "---"
-    FRONT="$FRONT" python3 - <<'PY'
+    FRONT="$FRONT" SPACE_MODE="$MODE" python3 - <<'PY'
 import os, re
 keep = {}
 for line in open(os.environ["FRONT"]):
     if ":" in line:
         k, v = line.split(":", 1)
         keep[k.strip()] = v.strip()
-keep.pop("sdk", None)
-keep.pop("dockerfile", None)
-for k, v in (("sdk", "docker"), ("app_port", "7860")):
-    keep[k] = v
-order = ["title", "emoji", "colorFrom", "colorTo", "sdk", "app_port", "pinned", "short_description"]
+# Never inherit the other mode's keys - `app_port` under the Streamlit SDK or a
+# stale `app_file` pointing at a Docker entrypoint both stop the Space booting.
+for k in ("sdk", "dockerfile", "app_port", "app_file"):
+    keep.pop(k, None)
+if os.environ.get("SPACE_MODE") == "streamlit":
+    keep["sdk"] = "streamlit"
+    keep["app_file"] = "streamlit_app.py"
+    order = ["title", "emoji", "colorFrom", "colorTo", "sdk", "app_file",
+             "pinned", "short_description"]
+else:
+    keep["sdk"] = "docker"
+    keep["app_port"] = "7860"
+    order = ["title", "emoji", "colorFrom", "colorTo", "sdk", "app_port",
+             "pinned", "short_description"]
 seen = set()
 for k in order:
     if k in keep:
@@ -192,9 +242,10 @@ PY
 fi
 
 # ------------------------------------------------------------------- verify
-python3 - "$WORK/space/README.md" <<'PY' || { echo "ERROR: generated README frontmatter is invalid." >&2; exit 1; }
+python3 - "$WORK/space/README.md" "$MODE" <<'PY' || { echo "ERROR: generated README frontmatter is invalid." >&2; exit 1; }
 import sys, re
 text = open(sys.argv[1]).read()
+mode = sys.argv[2]
 m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
 if not m:
     sys.exit(1)
@@ -207,9 +258,56 @@ except ImportError:
         (k.strip(), v.strip())
         for k, _, v in (line.partition(":") for line in body.splitlines() if ":" in line)
     )
-assert cfg.get("sdk") == "docker", "sdk must be docker"
-assert str(cfg.get("app_port")) == "7860", "app_port must be 7860"
-print(f"    ok - sdk={cfg['sdk']} app_port={cfg['app_port']} title={cfg.get('title','?')}")
+
+if mode == "streamlit":
+    assert cfg.get("sdk") == "streamlit", f"sdk must be streamlit, got {cfg.get('sdk')!r}"
+    assert cfg.get("app_file") == "streamlit_app.py", "app_file must be streamlit_app.py"
+    assert "app_port" not in cfg, "app_port belongs to the docker SDK and confuses Streamlit"
+    print(f"    ok - sdk=streamlit app_file={cfg['app_file']} title={cfg.get('title','?')}")
+else:
+    assert cfg.get("sdk") == "docker", f"sdk must be docker, got {cfg.get('sdk')!r}"
+    assert str(cfg.get("app_port")) == "7860", "app_port must be 7860"
+    print(f"    ok - sdk=docker app_port={cfg['app_port']} title={cfg.get('title','?')}")
+PY
+
+# The README body explains the current mode. Swap the marked block so a Docker
+# Space does not carry a "sdk: streamlit" explanation next to docker frontmatter.
+SPACE_MODE="$MODE" python3 - "$WORK/space/README.md" <<'PY' || { echo "ERROR: could not rewrite the README mode block." >&2; exit 1; }
+import os, sys
+
+path = sys.argv[1]
+text = open(path).read()
+start, end = "<!-- MODE-BLOCK:START -->", "<!-- MODE-BLOCK:END -->"
+if start not in text or end not in text:
+    sys.exit(0)  # nothing marked (e.g. --reset-frontmatter with an older README)
+
+if os.environ.get("SPACE_MODE") == "streamlit":
+    sys.exit(0)  # the block is already written for Streamlit
+
+docker = """This file is the Space's configuration. The **frontmatter above is required** —
+`sdk: docker` tells Hugging Face to build the Dockerfile, and `app_port` is the
+port the container listens on. Without it the Space won't start.
+
+```yaml
+sdk: docker
+app_port: 7860
+```
+
+### Signing in
+
+Use the direct URL **`https://YOURNAME-NAME.hf.space`**, not the page on
+huggingface.co that frames it. Browsers block session cookies inside embedded
+frames, so logging in on the framed view appears to do nothing. The login page
+shows the direct address if you land there by mistake.
+
+> This edition needs a **paid** Space: since July 2026 the Docker SDK is not part
+> of the free tier. `./deploy-space.sh` (no flag) publishes the free Streamlit
+> edition instead."""
+
+head, rest = text.split(start, 1)
+_, tail = rest.split(end, 1)
+open(path, "w").write(f"{head}{start}\n{docker}\n{end}{tail}")
+print("    ok - README body rewritten for docker mode")
 PY
 
 # --------------------------------------------------------------------- push
@@ -231,7 +329,11 @@ else
 fi
 
 echo
-echo "Done. The Space is rebuilding now - first build takes 3-5 minutes."
+if [ "$MODE" = "streamlit" ]; then
+  echo "Done. The Space is rebuilding now - first build takes 2-4 minutes."
+else
+  echo "Done. The Space is rebuilding now - first build takes 3-5 minutes."
+fi
 echo
 echo "  Space page : $SPACE_URL"
 echo "  Direct URL : https://$(echo "$SPACE_URL" | sed -E 's#^https?://huggingface.co/spaces/##; s#/#-#g').hf.space"
@@ -241,5 +343,10 @@ echo "  Settings -> Variables and secrets -> New secret"
 echo "      APP_PASSWORD = <your password>        required - otherwise it is open to anyone"
 echo "      OPENAI_API_KEY = <optional>           write messages with a model, not templates"
 echo
-echo "Use the direct .hf.space URL for signing in - browsers block the session"
-echo "cookie inside the embedded frame on huggingface.co."
+if [ "$MODE" = "docker" ]; then
+  echo "Use the direct .hf.space URL for signing in - browsers block the session"
+  echo "cookie inside the embedded frame on huggingface.co."
+else
+  echo "Remember: a free Space sleeps after 48h idle, and its disk is wiped on every"
+  echo "rebuild. Download a backup (tab 4) before you redeploy, restore it after."
+fi

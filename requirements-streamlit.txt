@@ -1,0 +1,16 @@
+# Dependencies for the Streamlit edition (streamlit_app.py).
+#
+# Deliberately NOT including fastapi / uvicorn / python-multipart: the Streamlit
+# UI replaces them, and leaving them out keeps the free-tier build small and fast.
+#
+# Hugging Face Spaces and Streamlit Community Cloud both install from a file
+# named requirements.txt, so deploy-space.sh swaps this in automatically when you
+# deploy with --streamlit.
+
+streamlit>=1.40
+httpx>=0.27
+beautifulsoup4>=4.12
+openpyxl>=3.1
+
+# Optional: faster HTML parsing. Crawling works without it.
+#lxml>=5.0

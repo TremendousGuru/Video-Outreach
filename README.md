@@ -10,13 +10,24 @@ Everything runs on your machine. Nothing is sent without you pressing send.
 
 ## Run it
 
+Streamlit edition (fewer dependencies, same engine):
+
+```bash
+cd shopify-outreach
+python3 -m pip install -r requirements-streamlit.txt
+python3 -m streamlit run streamlit_app.py
+```
+
+FastAPI edition (a real web server, with the original single-page UI):
+
 ```bash
 cd shopify-outreach
 python3 -m pip install -r requirements.txt
 python3 -m app.main
 ```
 
-Then open **http://localhost:8848**.
+Then open **http://localhost:8848**. The Streamlit edition prints its own URL,
+usually **http://localhost:8501**.
 
 Or use the launcher, which creates a virtualenv for you:
 
@@ -156,29 +167,42 @@ your mail client.
 
 Built as a local tool, so two things change on a public URL:
 
-1. **Set `APP_PASSWORD`.** With it set you get a login page and every route is
+1. **Set `APP_PASSWORD`.** With it set you get a login screen and everything is
    protected. Leave it unset and the app runs open, like it does on your laptop.
-   `/health` tells you which mode you're in.
+   The FastAPI edition reports which mode it's in at `/health`.
 2. **Decide what happens to your data.** No free host gives you a persistent
    disk, so the app has **Backup** and **Restore** buttons: download everything
    as one file, upload it back after a wipe.
+
+There are two front ends over the same engine. Pick by what your host supports:
+
+| Edition | Entry point | Runs on |
+|---|---|---|
+| **Streamlit** | `streamlit_app.py` | Hugging Face Spaces (free), Streamlit Community Cloud, any machine |
+| FastAPI | `app/main.py` | Docker, Render, a VPS — needs `uvicorn` |
+
+Hugging Face made the Docker SDK a paid feature in July 2026, so **Streamlit is
+the free path** on Spaces. `./deploy-space.sh` publishes that one by default;
+`./deploy-space.sh --docker` publishes the FastAPI edition instead.
 
 Pick a host:
 
 | Guide | For |
 |---|---|
-| **[DEPLOY-FREE.md](DEPLOY-FREE.md)** | Free hosting, compared — HF Spaces, Render free, local + tunnel |
+| **[DEPLOY-FREE.md](DEPLOY-FREE.md)** | Free hosting, compared — HF Spaces, Streamlit Cloud, Render free, local + tunnel |
 | **[DEPLOY-RENDER.md](DEPLOY-RENDER.md)** | Render walkthrough (paid, with a persistent disk) |
 
 Included blueprints and config:
 
 ```
-render-free.yaml   Render, free plan - no disk (use this on free)
-render.yaml        Render, paid plan - with a 1 GB persistent disk
-Dockerfile         Hugging Face Spaces and any Docker host (port 7860)
-space-README.md    the Space's README - its frontmatter is what makes it build
-deploy-space.sh    publish to a Space, preserving its title/emoji/colours
-.github/workflows/deploy-space.yml   optional: push to GitHub -> Space redeploys
+render-free.yaml            Render, free plan - no disk (use this on free)
+render.yaml                 Render, paid plan - with a 1 GB persistent disk
+Dockerfile                  Docker / Render / any Docker host (port 7860)
+requirements.txt            FastAPI edition dependencies
+requirements-streamlit.txt  Streamlit edition dependencies
+space-README.md             the Space's README - its frontmatter is what makes it run
+deploy-space.sh             publish to a Space (--streamlit default, --docker optional)
+extras/github-workflow-deploy-space.yml   optional: push to GitHub -> Space redeploys
 ```
 
 **Never put `APP_PASSWORD` in a file.** Free Spaces are public, so a password
@@ -232,29 +256,42 @@ cp .env.example .env      # then edit .env
 | `OPENAI_BASE_URL` | Point at OpenRouter, Groq, Together, a Gemini compatibility endpoint. |
 | `OPENAI_MODEL` | e.g. `openai/gpt-4o-mini`, `llama-3.3-70b-versatile`. |
 | `HOST` / `PORT` | Where the app listens. Default `0.0.0.0:8848`. |
+| `APP_PASSWORD` | Turns on the login screen. **Required on any public URL.** |
+| `OUTREACH_DB` | Where the SQLite file lives. Default `outreach.db` beside the code. |
+| `OUTREACH_HOSTED` | Set to `1` on a host, to warn about ephemeral storage. |
+| `OUTREACH_PERSISTENT` | Set to `1` to silence that warning when you really do have a disk. |
 
 Real environment variables win over `.env`, and anything you save in the Settings panel wins over both
-(clear it with the **Forget** button next to the key field).
+(clear it with the **Forget** button next to the key field). The Streamlit edition also reads
+`st.secrets`, which is how Streamlit Community Cloud passes secrets to the app.
 
 ## Files
 
 ```
 shopify-outreach/
-├── run.sh                 one-command launcher (creates .venv, installs, runs)
-├── push-to-github.sh      push this project to an empty GitHub repo
-├── requirements.txt
-├── .gitignore             keeps your lead data and keys out of git
-├── .env.example           copy to .env for key/base-url/model config
-├── outreach.db            your data (SQLite) - gitignored, delete to start over
+├── run.sh                  one-command launcher (creates .venv, installs, runs)
+├── start.py                start the FastAPI app with the right host/port
+├── push-to-github.sh       push this project to an empty GitHub repo
+├── streamlit_app.py        the Streamlit interface (the free hosted path)
+├── requirements.txt        FastAPI edition dependencies
+├── requirements-streamlit.txt   Streamlit edition dependencies
+├── requirements-mobile.txt      CLI-only dependencies, for phones
+├── deploy-space.sh         publish to a Hugging Face Space
+├── space-README.md         the Space's README - its frontmatter configures the Space
+├── .gitignore              keeps your lead data and keys out of git
+├── .env.example            copy to .env for key/base-url/model config
+├── outreach.db             your data (SQLite) - gitignored, delete to start over
 └── app/
     ├── __init__.py        loads .env on any import
     ├── main.py            FastAPI routes + export endpoints
+    ├── cli.py             command-line mode, no web server needed
+    ├── auth.py            password gate and session signing
     ├── ingest.py          CSV/XLSX/TXT parsing, column detection
     ├── crawler.py         Shopify JSON + HTML crawling, fact extraction
     ├── compose.py         LLM prompt + template writer
     ├── pipeline.py        batch queue, concurrency, live event stream
-    ├── db.py              SQLite schema and queries
-    └── static/            the interface
+    ├── db.py              SQLite schema, queries, backup/restore
+    └── static/            the FastAPI edition's interface
 ```
 
 ## What not to commit
