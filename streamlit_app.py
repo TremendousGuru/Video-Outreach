@@ -71,14 +71,15 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 # endpoint is chosen from a list instead of typed.
 PROVIDERS: dict[str, dict[str, str]] = {
     "OpenAI": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
-    # Gemini's free tier is Flash and Flash-Lite only - Pro models were moved
-    # behind billing in April 2026. 3.8 Flash is the current stable one;
-    # gemini-3.1-flash-lite allows more requests per minute (15 vs 10), which is
-    # the better pick when crawling a long list.
     "Google Gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                       "model": "gemini-3.8-flash"},
-    "OpenRouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
-    "Groq": {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    # Groq's free tier retired the Llama models during 2026; these are what it
+    # serves free now, at 30 requests/minute and 1,000/day.
+    "Groq": {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b"},
+    "GitHub Models": {"base_url": "https://models.github.ai/inference",
+                      "model": "openai/gpt-4o-mini"},
+    "OpenRouter": {"base_url": "https://openrouter.ai/api/v1",
+                   "model": "qwen/qwen3.8-27b:free"},
     "Together": {"base_url": "https://api.together.xyz/v1",
                  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
     "Custom": {"base_url": "", "model": ""},
@@ -324,6 +325,12 @@ def _test_key(settings: dict) -> None:
             # Classify by wording, not just status code: Gemini answers a bad key
             # with HTTP 400 "Please pass a valid API key", not the 401 OpenAI uses.
             text = str(e).lower()
+            # Google also flags whole projects ("Your project has been denied
+            # access") while the key itself is fine. Saying "check your key" there
+            # sends people chasing the one thing that is not wrong.
+            project_denied = "denied access" in text or (
+                "permission_denied" in text and "project" in text
+            )
             auth_problem = any(
                 s in text for s in (
                     "401", "403", "valid api key", "api key not valid", "incorrect api key",
@@ -331,7 +338,23 @@ def _test_key(settings: dict) -> None:
                     "authentication",
                 )
             )
-            if auth_problem:
+            if project_denied:
+                st.warning(
+                    "**The key is fine - Google has flagged the project, not the key.** "
+                    "This exact error has been hitting many Google accounts since 2026, "
+                    "including brand-new ones, and it affects the whole account rather "
+                    "than the key: a fresh key or a new project under the same account "
+                    "usually fails the same way."
+                )
+                st.caption(
+                    "Your options: request a manual review at "
+                    "discuss.ai.google.dev (slow, no guarantee), or switch to another "
+                    "free provider - the app works with any of them. See the "
+                    "**If Google denies your project** section in NEXT-STEPS.md. "
+                    "Meanwhile the app still works: stores fall back to template "
+                    "messages, and the crawl log says so."
+                )
+            elif auth_problem:
                 st.caption("The endpoint rejected the key. Check `OPENAI_API_KEY` in "
                            "this app's secrets - and that the key belongs to the "
                            "provider selected above.")

@@ -150,14 +150,75 @@ Press **Test the key**. It sends one tiny request and answers in a second:
 That middle row is the one to expect: model names change, and the app asks Google
 what your key can actually use rather than leaving you guessing.
 
+### If Google denies your project (403 "denied access")
+
+If Test the key reports:
+
+```
+API 403: Your project has been denied access. Please contact support.
+```
+
+then **your key is fine** — Google has flagged the *project*, not the key. You can
+tell because the AI Studio playground and model listings still work while
+generation is refused. Creating a new key, or a new project on the same account,
+usually fails the same way, because the flag sits on the account.
+
+**It is not your country.** Nigeria is on
+[Google's supported list](https://ai.google.dev/gemini-api/docs/available-regions),
+and this error has been reported all through 2026 by people in India, Brazil,
+Morocco and the US, on brand-new projects with no usage history. It is an
+automated abuse filter firing on innocent accounts.
+
+Google's own advice is to **enable billing**, which clears the flag for most
+people — but that moves you to the paid tier, so it's not a free option. The
+other route is a manual review request on
+[discuss.ai.google.dev](https://discuss.ai.google.dev) — slow, and many of those
+threads are still unanswered.
+
+**The practical fix is to use a different free provider.** The app speaks the
+OpenAI format, so switching is three lines in Secrets and nothing else changes.
+Easiest of all: sidebar → **Writing** → **Provider**, pick one, then put its key
+in Secrets.
+
+| Provider | Free tier | Where to get a key |
+|---|---|---|
+| **Groq** | 30 requests/min, ~1,000/day — the most generous | [console.groq.com](https://console.groq.com/keys) |
+| **GitHub Models** | ~15/min, 50–150/day, uses the GitHub account you already have | [github.com/settings/tokens](https://github.com/settings/tokens) |
+| OpenRouter | 20/min, 50/day on `:free` models | [openrouter.ai/keys](https://openrouter.ai/keys) |
+
+For Groq, paste this into Secrets instead of the Gemini lines:
+
+```toml
+OPENAI_API_KEY = "gsk_..."
+OPENAI_BASE_URL = "https://api.groq.com/openai/v1"
+OPENAI_MODEL = "openai/gpt-oss-120b"
+```
+
+For GitHub Models, the key is a GitHub token with the **Models: read** permission,
+and the model name includes its publisher:
+
+```toml
+OPENAI_API_KEY = "github_pat_..."
+OPENAI_BASE_URL = "https://models.github.ai/inference"
+OPENAI_MODEL = "openai/gpt-4o-mini"
+```
+
+Whichever you pick, press **Test the key** again. The app also prints the models
+your key can actually use if the one you named isn't available.
+
+> **Nothing is blocked while you sort this out.** Stores still get messages — the
+> app writes them from its templates instead of the model, and the crawl log
+> flags which ones. You can run your whole list today and switch the AI on later.
+
 ### Other providers
 
 | Service | `OPENAI_BASE_URL` | Example model |
 |---|---|---|
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` |
+| Groq | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` |
+| GitHub Models | `https://models.github.ai/inference` | `openai/gpt-4o-mini` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `qwen/qwen3.8-27b:free` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
-| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
-| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
 | Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
 
 ### If a key stops working mid-crawl
