@@ -40,7 +40,13 @@ def _bridge_secrets() -> None:
     """Copy Streamlit secrets into the environment so the existing modules pick
     them up unchanged. st.secrets raises if no secrets file exists, hence the
     try/except - a missing file is normal when running locally."""
-    keys = ("APP_PASSWORD", "OPENAI_API_KEY", "OUTREACH_DB", "OUTREACH_HOSTED", "SPACE_HOST")
+    keys = (
+        "APP_PASSWORD", "OPENAI_API_KEY", "OUTREACH_DB", "OUTREACH_HOSTED", "SPACE_HOST",
+        # The endpoint and model matter as much as the key: without these, someone
+        # using OpenRouter, Groq or a Gemini compatibility URL would set a secret
+        # that the app silently ignored and quietly fall back to templates.
+        "OPENAI_BASE_URL", "OPENAI_MODEL",
+    )
     try:
         available = dict(st.secrets)
     except Exception:
@@ -249,6 +255,33 @@ def mark_sent(lead_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Sidebar: settings
 # ---------------------------------------------------------------------------
+def _test_key(settings: dict) -> None:
+    """Make one tiny call so a bad key is discovered here, not mid-crawl.
+
+    compose_ai() raises with the API's own message ("API 401: Incorrect API
+    key", "API 404: model not found"), which is the part worth showing - it says
+    which of the three fields to fix.
+    """
+    probe = {
+        "store_name": "Test Store",
+        "domain": "test-store.example",
+        "platform": "Shopify",
+        "product_types": ["candles"],
+        "products": [{"title": "Vanilla Candle", "price": "$24"}],
+    }
+    with st.spinner("Asking the model for one short message..."):
+        try:
+            result = run_async(composer.compose_ai(probe, settings, "Test Store"))
+        except Exception as e:  # noqa: BLE001 - the message IS the useful part
+            st.error(f"The model call failed: {e}")
+            st.caption("401 = key rejected · 404/400 = wrong model or endpoint · "
+                       "timeout = network. Nothing else in the app is affected.")
+        else:
+            subject = (result.get("subjects") or ["(no subject)"])[0]
+            st.success(f"Working - {result.get('engine')}")
+            st.caption(f"Sample subject it wrote: “{subject}”")
+
+
 def sidebar_settings() -> dict:
     settings = db.load_settings()
     st.sidebar.markdown("### Your message")
@@ -267,9 +300,22 @@ def sidebar_settings() -> dict:
         st.markdown("### Writing")
         use_ai = st.checkbox("Use the AI model when a key is set",
                              value=bool(settings.get("use_ai", True)))
-        key_state = "set" if (settings.get("api_key") or os.environ.get("OPENAI_API_KEY")) else "not set"
-        st.caption(f"API key: {key_state}. Add `OPENAI_API_KEY` in this app's secrets, "
-                   "not here, so it never lands in the repo.")
+        endpoint = (settings.get("base_url") or "").strip()
+        # base_url always has a default, so it must not count as "the key is set".
+        key_state = "set" if (settings.get("api_key") or "").strip() else "not set"
+        hint = f"API key: {key_state}"
+        if endpoint and "api.openai.com" not in endpoint:
+            hint += f" · endpoint: {endpoint}"
+        else:
+            hint += " · endpoint: api.openai.com"
+        st.caption(hint + ". Put the key in this app's secrets, not here, so it never "
+                          "lands in the repo.")
+        if key_state == "set" and st.button(
+            "Test the key", use_container_width=True,
+            help="Sends one small request, so you find out now instead of halfway "
+                 "through a crawl.",
+        ):
+            _test_key(settings)
         model = st.text_input("Model", value=settings.get("model", "gpt-4o-mini"),
                               disabled=not use_ai)
 

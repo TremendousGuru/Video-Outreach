@@ -44,6 +44,59 @@ Your URL will be `https://something.streamlit.app`.
 
 ---
 
+## 1b. Optional: turn on the AI writing
+
+The app works without this — you get template-written messages instead. With a
+key, each message is written by a model from the facts it found on the store.
+
+**Where it goes:** the same Secrets box as the password. Never in a file.
+
+```toml
+APP_PASSWORD = "your password here"
+OPENAI_API_KEY = "sk-..."
+```
+
+Save, and the app restarts and picks it up. Then open the app and look at the
+sidebar: it should say **API key: set**, and there is a **Test the key** button
+next to it. Press it once — it sends a single tiny request and tells you
+immediately whether the key works, rather than you finding out after a 200-store
+crawl. If it fails it shows the API's own error, which tells you what to fix:
+
+| Message | Fix |
+|---|---|
+| `API 401: Incorrect API key` | The key is wrong or was revoked |
+| `API 404` / `API 400` with model | Wrong model name, or the model isn't on that endpoint |
+| `timeout` / connection error | Wrong `OPENAI_BASE_URL`, or the host is unreachable |
+
+### Using something other than OpenAI
+
+Any OpenAI-compatible service works — useful if OpenAI isn't available where you
+are, or you want a cheaper or free model. Add two more lines to Secrets:
+
+```toml
+OPENAI_API_KEY = "your key for that service"
+OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
+OPENAI_MODEL = "openai/gpt-4o-mini"
+```
+
+The sidebar then shows which endpoint is in use, so you can see the setting took
+effect. Common combinations:
+
+| Service | Base URL |
+|---|---|
+| OpenAI | `https://api.openai.com/v1` (the default) |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Together | `https://api.together.xyz/v1` |
+
+### If a key stops working mid-crawl
+
+Nothing breaks. That store's message is written from templates instead, and the
+progress line says so — `⚠️ AI failed, used templates: API 401 ...`. The other
+stores carry on.
+
+---
+
 ## 2. First five minutes on the live app
 
 1. Open the URL, type the password, sign in.
@@ -75,6 +128,8 @@ now**. Everything comes back: leads, messages, and your settings.
 |---|---|
 | "Oh no. Something went wrong." on first load | The build is still finishing. Wait a minute, reload. |
 | App is slow the first time you open it | It was asleep. Normal on free. |
+| Sidebar says "API key: not set" after you added one | The secret name is misspelled, or you saved it in Variables instead of Secrets |
+| Messages read generic and repetitive | No key set, or the key failed — the crawl log says which |
 | "The password was changed, so you were signed out." | You changed the secret. Sign in with the new one. |
 | Messages gone after a redeploy | Expected on free hosting — restore your backup. |
 | Changed something and the site looks stale | **Manage app** → **Reboot**. |
