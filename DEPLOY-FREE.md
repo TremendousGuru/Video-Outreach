@@ -161,7 +161,8 @@ The Space restarts and picks it up. Same place for `OPENAI_API_KEY` if you want
 model-written messages instead of templates — and it does not have to be an
 OpenAI key. Any OpenAI-compatible provider works; for Google Gemini add your
 Google AI Studio key plus `OPENAI_BASE_URL = https://generativelanguage.googleapis.com/v1beta/openai`
-and `OPENAI_MODEL = gemini-2.5-flash`. The app's sidebar **Provider** dropdown
+and `OPENAI_MODEL = gemini-3.8-flash` (Flash and Flash-Lite are the free-tier
+models; Pro moved behind billing in April 2026). The app's sidebar **Provider** dropdown
 sets the address for you, and **Test the key** confirms the key and the model
 name before you run a batch.
 

@@ -256,8 +256,8 @@ cp .env.example .env      # then edit .env
 | Variable | Purpose |
 |---|---|
 | `OPENAI_API_KEY` | Same as pasting a key in Settings. |
-| `OPENAI_BASE_URL` | Point at OpenRouter, Groq, Together, a Gemini compatibility endpoint. |
-| `OPENAI_MODEL` | e.g. `openai/gpt-4o-mini`, `llama-3.3-70b-versatile`. |
+| `OPENAI_BASE_URL` | Point at Google Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`), OpenRouter, Groq, Together. Or pick a Provider in the app's sidebar. |
+| `OPENAI_MODEL` | e.g. `gemini-3.8-flash`, `openai/gpt-4o-mini`, `llama-3.3-70b-versatile`. |
 | `HOST` / `PORT` | Where the app listens. Default `0.0.0.0:8848`. |
 | `APP_PASSWORD` | Turns on the login screen. **Required on any public URL.** |
 | `OUTREACH_DB` | Where the SQLite file lives. Default `outreach.db` beside the code. |

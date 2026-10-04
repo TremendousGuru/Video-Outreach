@@ -82,23 +82,58 @@ readable by anyone who finds it — a key committed there is a key given away.
 `.env` in the project folder, or `.streamlit/secrets.toml`. Both are already
 gitignored here. On Streamlit Cloud you don't touch either.)
 
-### Using Google Gemini
+### Using Google Gemini (your setup)
 
-Paste this, with your own values:
+**Step 1 — get the key.** At
+[**aistudio.google.com/apikey**](https://aistudio.google.com/apikey) (your
+`video-outreach-510605` project is fine — the project name is not needed
+anywhere in this app) → **Create API key** → copy it. It starts with `AIza`.
+
+> That page is where the key is *issued*. It is not where the app is hosted, and
+> nothing you do there makes the app run — the key is just a password for
+> Google's model.
+
+**Step 2 — paste it into Secrets**, with the other two lines:
 
 ```toml
 APP_PASSWORD = "your password"
 OPENAI_API_KEY = "AIza..."
 OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
-OPENAI_MODEL = "gemini-2.5-flash"
+OPENAI_MODEL = "gemini-3.8-flash"
 ```
 
-The `OPENAI_`-prefixed names are just what the app calls them — the value is your
-Google AI Studio key, and it is sent to Google.
+The `OPENAI_`-prefixed names are just what the app calls those settings — the
+value is your Google key and it is sent to Google, nowhere else.
 
-You can also pick the provider inside the app: sidebar → **Writing** →
-**Provider** → **Google Gemini**. That sets the address for you. The key itself
-still only ever lives in Secrets.
+You can also set the provider inside the app: sidebar → **Writing** →
+**Provider** → **Google Gemini**, which fills in the address and a model. The key
+itself still only ever lives in Secrets.
+
+**Step 3 — press Test the key.** It confirms the key and the model name in a
+second, and if the model name is wrong it prints the ones your key can use.
+
+### Gemini's free tier, and what it means for crawling
+
+| | Free tier |
+|---|---|
+| Models | **Flash and Flash-Lite only** — Pro models moved behind billing in April 2026 |
+| Requests/minute | ~10 for Flash (15 for Flash-Lite) |
+| Requests/day | ~1,000–1,500, resets midnight Pacific |
+
+Every store in your list is one request. Two practical consequences:
+
+- **Keep "Stores at once" at 2–3.** At 10 requests a minute, 8 at once just
+  queues up 429 errors. Slow and steady finishes the batch sooner.
+- **Run in batches of 20–40**, not 200. That fits inside the daily allowance and
+  is better for deliverability anyway.
+
+If the app does hit a rate limit it now **waits and retries** (honouring Google's
+own `Retry-After`) rather than throwing the AI message away. If it still fails
+after three tries, that one store falls back to a template and the log says so —
+your other stores are unaffected.
+
+**If you need more throughput**, switch `OPENAI_MODEL` to
+`gemini-3.1-flash-lite` — 15 requests a minute instead of 10, and cheaper.
 
 ### Then check it, once
 
@@ -107,7 +142,7 @@ Press **Test the key**. It sends one tiny request and answers in a second:
 
 | What it says | What it means |
 |---|---|
-| `Working - ai:gemini-2.5-flash` and a sample subject | Done. Nothing else to do. |
+| `Working - ai:gemini-3.8-flash` and a sample subject | Done. Nothing else to do. |
 | `API 400: Please pass a valid API key` | Google rejected the key — wrong or revoked |
 | **"The key works, but it cannot see the model …"** plus a list | The key is fine; the model name is not. Copy one from the list it prints and paste it into **Model** |
 | `timeout` / connection error | Wrong `OPENAI_BASE_URL` |
@@ -119,7 +154,7 @@ what your key can actually use rather than leaving you guessing.
 
 | Service | `OPENAI_BASE_URL` | Example model |
 |---|---|---|
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.8-flash` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
 | Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |

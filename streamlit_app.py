@@ -71,8 +71,12 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 # endpoint is chosen from a list instead of typed.
 PROVIDERS: dict[str, dict[str, str]] = {
     "OpenAI": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    # Gemini's free tier is Flash and Flash-Lite only - Pro models were moved
+    # behind billing in April 2026. 3.8 Flash is the current stable one;
+    # gemini-3.1-flash-lite allows more requests per minute (15 vs 10), which is
+    # the better pick when crawling a long list.
     "Google Gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-                      "model": "gemini-2.5-flash"},
+                      "model": "gemini-3.8-flash"},
     "OpenRouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
     "Groq": {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
     "Together": {"base_url": "https://api.together.xyz/v1",

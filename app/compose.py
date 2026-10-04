@@ -1,6 +1,7 @@
 """Turn a fact sheet into a personalized email. AI when a key is set, templates otherwise."""
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import re
@@ -161,6 +162,28 @@ def _api_error_message(response) -> str:
     return (found or (response.text or "")).strip()[:300]
 
 
+# 429 is a rate limit, 503 is usually "model overloaded" - both are temporary and
+# both are common on free tiers, so they are worth waiting out rather than
+# throwing away the AI-written message for that store.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+RETRIES = 3
+
+
+def _retry_delay(response, attempt: int) -> float:
+    """Seconds to wait. Providers often say so themselves via Retry-After."""
+    header = ""
+    try:
+        header = response.headers.get("Retry-After", "") or ""
+    except Exception:  # noqa: BLE001
+        header = ""
+    if header:
+        try:
+            return max(0.0, min(float(header), 30.0))
+        except ValueError:
+            pass
+    return min(2.0 * (2 ** (attempt - 1)), 30.0)  # 2s, 4s, 8s
+
+
 async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store") -> dict:
     """OpenAI-compatible chat completion. Raises on failure so the caller can fall back."""
     base = (settings.get("base_url") or "https://api.openai.com/v1").rstrip("/")
@@ -180,10 +203,23 @@ async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store")
         ],
     }
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    async def post() -> httpx.Response:
+        return await client.post(f"{base}/chat/completions", json=payload, headers=headers)
+
     async with httpx.AsyncClient(timeout=90) as client:
-        r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
+        r = await post()
+        # Free tiers rate-limit hard, and Gemini's free tier is roughly 10-15
+        # requests a minute, so a batch crawl WILL hit 429. Without a retry that
+        # store silently drops to a template message, which is a quality loss the
+        # user never asked for. Wait and try again first.
+        attempt = 0
+        while r.status_code in RETRY_STATUSES and attempt < RETRIES:
+            attempt += 1
+            await asyncio.sleep(_retry_delay(r, attempt))
+            r = await post()
         if r.status_code >= 400 and "response_format" in r.text:
-            r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
+            r = await post()
         if r.status_code >= 400:
             raise RuntimeError(f"API {r.status_code}: {_api_error_message(r)}")
 
