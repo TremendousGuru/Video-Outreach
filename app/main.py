@@ -176,26 +176,39 @@ def persistence_warning() -> str:
 
 # ------------------------------------------------------------------ settings
 
+def _key_report() -> dict[str, Any]:
+    """Everything the interface is allowed to know about the key: whether one
+    exists, which one it looks like, and where it came from. Never the key."""
+    key = db.env_api_key()
+    return {
+        "has_api_key": bool(key),
+        "key_hint": db.mask_key(key),
+        "key_source": "environment" if key else "none",
+    }
+
+
 @app.get("/api/settings")
 async def get_settings():
     s = db.load_settings()
     s.pop("api_key", None)
-    s["has_api_key"] = bool((db.load_settings().get("api_key") or "").strip())
-    s["key_from_env"] = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    s.update(_key_report())
     return s
 
 
 @app.post("/api/settings")
 async def post_settings(patch: dict[str, Any] = Body(...)):
-    if patch.pop("clear_api_key", False):
-        db.save_settings({"api_key": ""})
-    if "api_key" in patch and patch["api_key"] == "":
-        patch.pop("api_key")
+    """Save settings. Key fields are accepted and dropped, not stored.
+
+    Rejecting them outright would break older clients for no benefit; ignoring
+    them quietly while telling the caller keeps the contract honest. There is
+    deliberately no path from this endpoint to the key.
+    """
+    ignored = any(patch.pop(f, None) is not None for f in ("api_key", "clear_api_key"))
     s = db.save_settings(patch)
-    env_ok = bool(os.environ.get("OPENAI_API_KEY", "").strip())
     s.pop("api_key", None)
-    s["has_api_key"] = bool((db.load_settings().get("api_key") or "").strip())
-    s["key_from_env"] = env_ok
+    s.update(_key_report())
+    if ignored:
+        s["api_key_ignored"] = True
     return s
 
 
@@ -203,7 +216,12 @@ async def post_settings(patch: dict[str, Any] = Body(...)):
 async def test_key():
     s = db.load_settings()
     if not (s.get("api_key") or "").strip():
-        raise HTTPException(400, "No API key saved yet.")
+        raise HTTPException(
+            400,
+            "No API key found. Set OPENAI_API_KEY in the server's environment "
+            "(the host's secrets or env settings) and restart. Keys cannot be "
+            "entered or changed from the web interface.",
+        )
     facts = {
         "store_name": "Test Goods Co", "domain": "testgoods.com", "platform": "shopify",
         "tagline": "Small-batch candles poured in Portland",

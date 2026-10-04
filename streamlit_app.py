@@ -415,11 +415,20 @@ def sidebar_settings() -> dict:
                               disabled=not use_ai)
 
         endpoint = (settings.get("base_url") or "").strip()
-        # base_url always has a default, so it must not count as "the key is set".
-        key_state = "set" if (settings.get("api_key") or "").strip() else "not set"
-        st.caption(f"API key: {key_state} · sending to {endpoint or '(none)'} · put the "
-                   "key in this app's secrets, never here.")
-        if key_state == "set" and st.button(
+        # The key is read-only here: it comes from this app's secrets (or the
+        # environment) and there is no field, anywhere in the UI, that writes one.
+        # This block reports presence only.
+        _key = db.env_api_key()
+        if _key:
+            st.success(f"Key found: {db.mask_key(_key)} — from this app's secrets. "
+                       "Read-only here.", icon="🔑")
+        else:
+            st.info("No key found. Add `OPENAI_API_KEY` in this app's **Secrets** "
+                    "(or the environment) and restart. Templates are used until then.",
+                    icon="✍️")
+        st.caption(f"Requests go to {endpoint or '(no endpoint set)'} · keys cannot be "
+                   "entered, viewed or changed from this interface.")
+        if _key and st.button(
             "Test the key", use_container_width=True,
             help="Sends one small request, so you find out now instead of halfway "
                  "through a crawl.",

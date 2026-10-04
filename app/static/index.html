@@ -130,11 +130,10 @@ team@allbirds.com | allbirds.com"></textarea>
 
       <div class="grid2">
         <div class="field">
-          <label>API key <span class="muted">(OpenAI, OpenRouter, Groq, Gemini-compat…)</span></label>
+          <label>AI key <span class="muted">(read from the server's environment)</span></label>
           <div class="row">
-            <input type="password" id="s_api_key" placeholder="sk-… leave blank to keep unchanged">
-            <button class="btn btn-ghost btn-sm" id="btnTestKey">Test</button>
-            <button class="btn btn-ghost btn-sm danger-text" id="btnForgetKey" title="Delete the stored key">Forget</button>
+            <span id="keyStatus" class="hint">Checking…</span>
+            <button class="btn btn-ghost btn-sm" id="btnTestKey">Test connection</button>
           </div>
           <div id="keyTest" class="hint"></div>
         </div>

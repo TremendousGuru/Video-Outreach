@@ -264,9 +264,20 @@ cp .env.example .env      # then edit .env
 | `OUTREACH_HOSTED` | Set to `1` on a host, to warn about ephemeral storage. |
 | `OUTREACH_PERSISTENT` | Set to `1` to silence that warning when you really do have a disk. |
 
-Real environment variables win over `.env`, and anything you save in the Settings panel wins over both
-(clear it with the **Forget** button next to the key field). The Streamlit edition also reads
-`st.secrets`, which is how Streamlit Community Cloud passes secrets to the app.
+Real environment variables win over `.env`. The Streamlit edition also reads `st.secrets`, which is
+how Streamlit Community Cloud passes secrets to the app.
+
+**The API key can only be set in the backend.** There is no key field in either interface, and
+neither `/api/settings` nor any other endpoint will store one - `save_settings()` only persists
+keys named in `DEFAULTS`, and `api_key` is deliberately not one of them. Older versions of this app
+let you save a key from the Settings panel; any such stored key is deleted from the database the
+next time it opens, because it would otherwise ride along in a backup file and outrank the key you
+actually configured.
+
+The interfaces only *report* the key: whether one is present, a masked hint (`gsk_...4321`) so you
+can tell which one it is, and that it came from the environment. To change or remove it, edit the
+environment (host secrets / `.env` / shell export) and restart; to disable AI entirely, delete it
+and the app falls back to templates.
 
 ## Files
 

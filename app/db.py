@@ -35,7 +35,10 @@ DEFAULTS: dict[str, Any] = {
     "subject_style": "mix",
     "optout": True,
     "optout_line": "Not interested? Just reply \"no\" and I won't follow up.",
-    "api_key": "",
+    # NOTE: no "api_key" here, deliberately. save_settings() only persists keys
+    # that appear in DEFAULTS, so leaving it out makes the database physically
+    # unable to store a key. Keys come from the environment and nowhere else -
+    # see env_api_key().
     "base_url": "https://api.openai.com/v1",
     "model": "gpt-4o-mini",
     "use_ai": True,
@@ -81,6 +84,29 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def env_api_key() -> str:
+    """The one and only source of the API key.
+
+    Set OPENAI_API_KEY in the host's environment (Streamlit secrets, a shell
+    export, Render/space env vars - the name stays OPENAI_API_KEY even when the
+    key is Groq's or Gemini's, because it is the OpenAI-compatible slot). The app
+    can report whether a key is present; it can never change it. That asymmetry
+    is the point: a key typed into a web form would be written to a database that
+    free hosting wipes and a breach exposes, and would then outrank the key the
+    operator actually configured.
+    """
+    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def mask_key(key: str) -> str:
+    """Enough of a key to recognise which one it is, not enough to use it."""
+    if not key:
+        return ""
+    if len(key) <= 12:
+        return "*" * len(key)
+    return f"{key[:4]}...{key[-4:]}"
+
+
 def conn() -> sqlite3.Connection:
     global _conn
     with _lock:
@@ -91,6 +117,11 @@ def conn() -> sqlite3.Connection:
             _conn.execute("PRAGMA journal_mode=WAL")
             _conn.executescript(SCHEMA)
             _conn.commit()
+            # Older versions let a key be saved from the settings form. Wipe any
+            # such row on open, so a stale key cannot survive in the database,
+            # ride along in a backup file, or silently outrank the configured one.
+            _conn.execute("DELETE FROM settings WHERE k='api_key'")
+            _conn.commit()
             # Anything mid-flight when the server died goes back to the queue.
             _conn.execute("UPDATE leads SET status='crawled' WHERE status='crawling' AND facts != ''")
             _conn.execute("UPDATE leads SET status='pending' WHERE status IN ('crawling','composing')")
@@ -100,10 +131,9 @@ def conn() -> sqlite3.Connection:
 
 def load_settings() -> dict[str, Any]:
     s = dict(DEFAULTS)
-    # Environment first, so an explicit choice saved in the app still wins.
-    env_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if env_key:
-        s["api_key"] = env_key
+    # The key is never read from the database - only from the environment. Any
+    # saved row is ignored here even if one somehow exists.
+    s["api_key"] = env_api_key()
     for env_name, key in (("OPENAI_BASE_URL", "base_url"), ("OPENAI_MODEL", "model")):
         v = os.environ.get(env_name, "").strip()
         if v:

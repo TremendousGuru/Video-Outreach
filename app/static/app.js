@@ -292,16 +292,22 @@ async function loadSettings() {
     if (el) el.checked = !!s[key];
   }
   const badge = $("#keyBadge");
-  if (s.has_api_key || s.key_from_env) {
+  if (s.has_api_key) {
     badge.textContent = `AI: ${s.model || "key set"}`;
     badge.className = "badge badge-ok";
   } else {
     badge.textContent = "AI: off (templates)";
     badge.className = "badge badge-muted";
   }
-  $("#aiHint").textContent = s.key_from_env
-    ? "A key is set via the OPENAI_API_KEY environment variable. Saving a key here overrides it."
-    : "Without a key, messages are written from smart templates using the real facts from each store. Works fine, just less varied.";
+  const status = $("#keyStatus");
+  if (status) {
+    status.textContent = s.has_api_key
+      ? `Key found on the server: ${s.key_hint || "(set)"} — source: ${s.key_source}`
+      : "No key found in the server's environment.";
+  }
+  $("#aiHint").textContent = s.has_api_key
+    ? "This key is read from the server's environment (OPENAI_API_KEY). It cannot be viewed or changed from this page."
+    : "To use a model, set OPENAI_API_KEY in the server's environment and restart. Without it, messages are written from smart templates using the real facts from each store — works fine, just less varied.";
 }
 
 async function saveSettings() {
@@ -316,10 +322,9 @@ async function saveSettings() {
     respect_robots: $("#s_respect_robots").checked, find_missing_emails: $("#s_find_missing_emails").checked,
     auto_compose: $("#s_auto_compose").checked,
   };
-  const key = $("#s_api_key").value.trim();
-  if (key) patch.api_key = key;
+  // No key here on purpose: it is read from the server's environment and cannot
+  // be set from the page.
   await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
-  $("#s_api_key").value = "";
   await loadSettings();
   $("#settingsModal").classList.add("hidden");
   toast("Settings saved");
@@ -334,13 +339,8 @@ function init() {
 
   $("#btnTestKey").addEventListener("click", async () => {
     const el = $("#keyTest");
-    el.textContent = "Testing…";
-    const key = $("#s_api_key").value.trim();
-    if (key) {
-      await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: key }) });
-      $("#s_api_key").value = "";
-      await loadSettings();
-    }
+    el.textContent = "Testing the server's key…";
+    // Tests whatever the server has configured. The page never supplies a key.
     const r = await api("/api/test-key", { method: "POST" });
     if (r.ok) {
       el.innerHTML = `<span style="color:var(--ok)">Works.</span> Sample subject: “${esc(r.sample_subject)}”`;
@@ -350,12 +350,8 @@ function init() {
     }
   });
 
-  $("#btnForgetKey").addEventListener("click", async () => {
-    await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clear_api_key: true }) });
-    await loadSettings();
-    toast("Stored API key deleted");
-  });
+  // The "Forget key" button is gone: keys live in the server's environment, so
+  // there is nothing here to delete. Remove the key there and restart to disable AI.
 
   // upload
   const dz = $("#dropzone"), fi = $("#fileInput");
