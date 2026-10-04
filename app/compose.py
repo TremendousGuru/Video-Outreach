@@ -127,6 +127,40 @@ def _parse_json(text: str) -> dict:
     return {}
 
 
+def _api_error_message(response) -> str:
+    """Pull the human-readable message out of whatever shape the provider uses.
+
+    Providers disagree here. OpenAI returns {"error": {"message": ...}}. Gemini
+    returns a JSON *array*: [{"error": {"code": 400, "message": "Please pass a
+    valid API key"}}]. Reading only the dict shape meant the fallback truncated
+    the raw body, which cut off exactly the part that said what was wrong.
+    """
+
+    def dig(obj) -> str:
+        if isinstance(obj, dict):
+            err = obj.get("error")
+            if isinstance(err, dict) and err.get("message"):
+                return str(err["message"])
+            if isinstance(err, str):
+                return err
+            for key in ("message", "detail"):
+                if isinstance(obj.get(key), str):
+                    return obj[key]
+            return ""
+        if isinstance(obj, list):
+            for item in obj:
+                found = dig(item)
+                if found:
+                    return found
+        return ""
+
+    try:
+        found = dig(response.json())
+    except Exception:  # noqa: BLE001 - not JSON at all, fall through to raw text
+        found = ""
+    return (found or (response.text or "")).strip()[:300]
+
+
 async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store") -> dict:
     """OpenAI-compatible chat completion. Raises on failure so the caller can fall back."""
     base = (settings.get("base_url") or "https://api.openai.com/v1").rstrip("/")
@@ -151,12 +185,7 @@ async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store")
         if r.status_code >= 400 and "response_format" in r.text:
             r = await client.post(f"{base}/chat/completions", json=payload, headers=headers)
         if r.status_code >= 400:
-            detail = ""
-            try:
-                detail = r.json().get("error", {}).get("message", "")
-            except Exception:
-                detail = r.text[:200]
-            raise RuntimeError(f"API {r.status_code}: {detail or r.text[:160]}")
+            raise RuntimeError(f"API {r.status_code}: {_api_error_message(r)}")
 
     data = r.json()
     try:

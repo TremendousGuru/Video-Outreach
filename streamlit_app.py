@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 import streamlit as st
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,20 @@ _bridge_secrets()
 from app import compose as composer  # noqa: E402
 from app import crawler, db, ingest  # noqa: E402
 from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
+
+# Every one of these speaks the OpenAI chat-completions shape, so the only thing
+# that changes is the address and the model name. Keeping them here means the
+# endpoint is chosen from a list instead of typed.
+PROVIDERS: dict[str, dict[str, str]] = {
+    "OpenAI": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "Google Gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                      "model": "gemini-2.5-flash"},
+    "OpenRouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
+    "Groq": {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "Together": {"base_url": "https://api.together.xyz/v1",
+                 "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
+    "Custom": {"base_url": "", "model": ""},
+}
 
 STATUS_LABEL = {
     "pending": "queued", "crawling": "crawling", "crawled": "crawled",
@@ -255,6 +270,34 @@ def mark_sent(lead_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Sidebar: settings
 # ---------------------------------------------------------------------------
+def _list_models(settings: dict) -> list[str]:
+    """Ask the endpoint which models this key can actually use.
+
+    Worth the extra call: model names differ per provider and change often, so
+    guessing produces a 404 that looks like a broken key. Asking the API turns
+    "wrong model name" into a fixable list.
+    """
+    base = (settings.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    key = (settings.get("api_key") or "").strip()
+    if not key:
+        return []
+
+    async def fetch() -> list[str]:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(f"{base}/models",
+                                 headers={"Authorization": f"Bearer {key}"})
+            if r.status_code >= 400:
+                return []
+            data = r.json().get("data") or []
+        ids = [str(m.get("id", "")) for m in data if isinstance(m, dict)]
+        return sorted(i for i in ids if i)
+
+    try:
+        return run_async(fetch())
+    except Exception:  # noqa: BLE001 - this is a helpful extra, never fatal
+        return []
+
+
 def _test_key(settings: dict) -> None:
     """Make one tiny call so a bad key is discovered here, not mid-crawl.
 
@@ -274,8 +317,31 @@ def _test_key(settings: dict) -> None:
             result = run_async(composer.compose_ai(probe, settings, "Test Store"))
         except Exception as e:  # noqa: BLE001 - the message IS the useful part
             st.error(f"The model call failed: {e}")
-            st.caption("401 = key rejected · 404/400 = wrong model or endpoint · "
-                       "timeout = network. Nothing else in the app is affected.")
+            # Classify by wording, not just status code: Gemini answers a bad key
+            # with HTTP 400 "Please pass a valid API key", not the 401 OpenAI uses.
+            text = str(e).lower()
+            auth_problem = any(
+                s in text for s in (
+                    "401", "403", "valid api key", "api key not valid", "incorrect api key",
+                    "invalid api key", "unauthorized", "invalid_argument", "permission_denied",
+                    "authentication",
+                )
+            )
+            if auth_problem:
+                st.caption("The endpoint rejected the key. Check `OPENAI_API_KEY` in "
+                           "this app's secrets - and that the key belongs to the "
+                           "provider selected above.")
+            else:
+                # 404/400 is nearly always the model name, so ask what is available.
+                with st.spinner("Asking the endpoint what models it offers..."):
+                    models = _list_models(settings)
+                if models:
+                    st.warning(f"**The key works, but it cannot see the model "
+                               f"“{settings.get('model')}”.** Use one of these instead:")
+                    st.code("\n".join(models[:40]), language=None)
+                else:
+                    st.caption("404/400 = wrong model name or endpoint · timeout = "
+                               "network. Nothing else in the app is affected.")
         else:
             subject = (result.get("subjects") or ["(no subject)"])[0]
             st.success(f"Working - {result.get('engine')}")
@@ -300,24 +366,42 @@ def sidebar_settings() -> dict:
         st.markdown("### Writing")
         use_ai = st.checkbox("Use the AI model when a key is set",
                              value=bool(settings.get("use_ai", True)))
+
+        # Picking a provider by name keeps the endpoint out of the user's hands -
+        # the usual mistake is a URL missing its /openai suffix, which returns a
+        # 404 that looks like a bad key.
+        current_url = (settings.get("base_url") or "").rstrip("/")
+        labels = list(PROVIDERS)
+        known = [l for l in labels if PROVIDERS[l]["base_url"]
+                 and PROVIDERS[l]["base_url"].rstrip("/") == current_url]
+        picked = st.selectbox("Provider", labels,
+                              index=labels.index(known[0]) if known else labels.index("Custom"),
+                              disabled=not use_ai,
+                              help="Where your key comes from. Gemini works through "
+                                   "Google's OpenAI-compatible endpoint.")
+        if use_ai and PROVIDERS[picked]["base_url"] and picked != (known[0] if known else "Custom"):
+            db.save_settings({"base_url": PROVIDERS[picked]["base_url"],
+                              "model": PROVIDERS[picked]["model"]})
+            st.rerun()
+
+        model = st.text_input("Model", value=settings.get("model", "gpt-4o-mini"),
+                              disabled=not use_ai)
+
         endpoint = (settings.get("base_url") or "").strip()
         # base_url always has a default, so it must not count as "the key is set".
         key_state = "set" if (settings.get("api_key") or "").strip() else "not set"
-        hint = f"API key: {key_state}"
-        if endpoint and "api.openai.com" not in endpoint:
-            hint += f" · endpoint: {endpoint}"
-        else:
-            hint += " · endpoint: api.openai.com"
-        st.caption(hint + ". Put the key in this app's secrets, not here, so it never "
-                          "lands in the repo.")
+        st.caption(f"API key: {key_state} · sending to {endpoint or '(none)'} · put the "
+                   "key in this app's secrets, never here.")
         if key_state == "set" and st.button(
             "Test the key", use_container_width=True,
             help="Sends one small request, so you find out now instead of halfway "
                  "through a crawl.",
         ):
-            _test_key(settings)
-        model = st.text_input("Model", value=settings.get("model", "gpt-4o-mini"),
-                              disabled=not use_ai)
+            # Save the model before testing. Otherwise you test the value you just
+            # replaced - and the crawl keeps using it too, which looks exactly like
+            # the new model being ignored.
+            db.save_settings({"model": model, "base_url": settings.get("base_url", "")})
+            _test_key(db.load_settings())
 
         st.markdown("### Safety")
         optout = st.checkbox("Add an opt-out line", value=bool(settings.get("optout", True)))

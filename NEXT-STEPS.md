@@ -49,51 +49,70 @@ Your URL will be `https://something.streamlit.app`.
 The app works without this — you get template-written messages instead. With a
 key, each message is written by a model from the facts it found on the store.
 
-**Where it goes:** the same Secrets box as the password. Never in a file.
+### There is no file to edit
+
+Your key goes in the **Secrets box**, which is a web page, not a file:
+
+> Streamlit Cloud → your app → **Manage app** (bottom right) → **Settings** →
+> **Secrets**
+
+Paste it there and press Save. The app restarts and picks it up.
+
+**GitHub must never contain your key or password.** Everything in your repo is
+readable by anyone who finds it — a key committed there is a key given away.
+
+(If you ever run the app on a computer instead of the web, the equivalent file is
+`.env` in the project folder, or `.streamlit/secrets.toml`. Both are already
+gitignored here. On Streamlit Cloud you don't touch either.)
+
+### Using Google Gemini
+
+Paste this, with your own values:
 
 ```toml
-APP_PASSWORD = "your password here"
-OPENAI_API_KEY = "sk-..."
+APP_PASSWORD = "your password"
+OPENAI_API_KEY = "AIza..."
+OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+OPENAI_MODEL = "gemini-2.5-flash"
 ```
 
-Save, and the app restarts and picks it up. Then open the app and look at the
-sidebar: it should say **API key: set**, and there is a **Test the key** button
-next to it. Press it once — it sends a single tiny request and tells you
-immediately whether the key works, rather than you finding out after a 200-store
-crawl. If it fails it shows the API's own error, which tells you what to fix:
+The `OPENAI_`-prefixed names are just what the app calls them — the value is your
+Google AI Studio key, and it is sent to Google.
 
-| Message | Fix |
+You can also pick the provider inside the app: sidebar → **Writing** →
+**Provider** → **Google Gemini**. That sets the address for you. The key itself
+still only ever lives in Secrets.
+
+### Then check it, once
+
+Sidebar → it should say **API key: set**, and show the address it will send to.
+Press **Test the key**. It sends one tiny request and answers in a second:
+
+| What it says | What it means |
 |---|---|
-| `API 401: Incorrect API key` | The key is wrong or was revoked |
-| `API 404` / `API 400` with model | Wrong model name, or the model isn't on that endpoint |
-| `timeout` / connection error | Wrong `OPENAI_BASE_URL`, or the host is unreachable |
+| `Working - ai:gemini-2.5-flash` and a sample subject | Done. Nothing else to do. |
+| `API 400: Please pass a valid API key` | Google rejected the key — wrong or revoked |
+| **"The key works, but it cannot see the model …"** plus a list | The key is fine; the model name is not. Copy one from the list it prints and paste it into **Model** |
+| `timeout` / connection error | Wrong `OPENAI_BASE_URL` |
 
-### Using something other than OpenAI
+That middle row is the one to expect: model names change, and the app asks Google
+what your key can actually use rather than leaving you guessing.
 
-Any OpenAI-compatible service works — useful if OpenAI isn't available where you
-are, or you want a cheaper or free model. Add two more lines to Secrets:
+### Other providers
 
-```toml
-OPENAI_API_KEY = "your key for that service"
-OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
-OPENAI_MODEL = "openai/gpt-4o-mini"
-```
-
-The sidebar then shows which endpoint is in use, so you can see the setting took
-effect. Common combinations:
-
-| Service | Base URL |
-|---|---|
-| OpenAI | `https://api.openai.com/v1` (the default) |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| Groq | `https://api.groq.com/openai/v1` |
-| Together | `https://api.together.xyz/v1` |
+| Service | `OPENAI_BASE_URL` | Example model |
+|---|---|---|
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
 
 ### If a key stops working mid-crawl
 
 Nothing breaks. That store's message is written from templates instead, and the
-progress line says so — `⚠️ AI failed, used templates: API 401 ...`. The other
-stores carry on.
+progress line says so — `⚠️ AI failed, used templates: ...`. The other stores
+carry on.
 
 ---
 
