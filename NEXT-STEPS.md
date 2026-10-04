@@ -112,6 +112,39 @@ itself still only ever lives in Secrets.
 **Step 3 — press Test the key.** It confirms the key and the model name in a
 second, and if the model name is wrong it prints the ones your key can use.
 
+### Which key do you have? AQ. versus AIza (both fine)
+
+Google is mid-migration between two key types, and it changes nothing about how
+you configure the app:
+
+| | Standard key | **Authorization (auth) key** |
+|---|---|---|
+| Looks like | `AIza...` | **`AQ.Ab8...`** |
+| Bound to | just a Google Cloud project | a project *and* a service account |
+| Restrictions | must be restricted by hand | **restricted to Gemini API by default** |
+| Status | being retired | **every new AI Studio key since 28 May 2026** |
+
+So a key starting `AQ.Ab8` is not a mistake or the wrong thing copied — it is the
+current format, and it works. Three details from Google's
+[key documentation](https://aistudio.google.com/docs/api-key) worth knowing:
+
+- **Restriction matters.** Since 19 June 2026 the API **rejects unrestricted
+  standard keys**. Auth keys (yours) are restricted from birth, so this is not
+  your problem — but if you have an older `AIza` key lying around, look for the
+  **Unrestricted** label in AI Studio and click **Add restrictions**, or it will
+  be refused.
+- **Dormant keys get blocked.** Since 7 May 2026, an unrestricted key that sits
+  unused for a long time gets a **Blocked** tag. Generate a fresh key if you see
+  that.
+- **Where to look:** [aistudio.google.com/api-keys](https://aistudio.google.com/api-keys)
+  has a **Key Type** column that tells you which sort each key is.
+
+**Nothing in the app needs to change for either type.** Verified against the live
+endpoint: the OpenAI-compatible address accepts both formats and *requires* the
+`Authorization: Bearer` header — which is exactly what this app sends. (Some
+tools wrongly send `AQ.` keys to Google's Vertex `aiplatform` address, which
+rejects them; this app does not do that.)
+
 ### Gemini's free tier, and what it means for crawling
 
 | | Free tier |
@@ -175,10 +208,25 @@ other route is a manual review request on
 [discuss.ai.google.dev](https://discuss.ai.google.dev) — slow, and many of those
 threads are still unanswered.
 
-**The practical fix is to use a different free provider.** The app speaks the
-OpenAI format, so switching is three lines in Secrets and nothing else changes.
-Easiest of all: sidebar → **Writing** → **Provider**, pick one, then put its key
-in Secrets.
+**Check this first, it costs nothing.** Open your
+[API keys page](https://aistudio.google.com/api-keys) and look at the project's
+**Billing Tier**. If it reads **"Unavailable"** rather than "Free tier", that is
+the flag — Google has disabled API access for that project, and no amount of
+key-swapping will fix it.
+
+**Two free things to try, in this order:**
+
+1. **A new project, then a new key.** AI Studio → **Projects** → create one, then
+   create a key in it. Reports say this usually fails the same way, because the
+   flag sits on the account — but it takes two minutes and costs nothing.
+2. **A different Google account.** This is the workaround people report actually
+   working: the flag is per-account, so a brand-new Google account issues working
+   keys. Free, but you'd be starting that account's Gemini access from scratch.
+
+**Then the practical fix: a different free provider.** The app speaks the OpenAI
+format, so switching is three lines in Secrets and nothing else changes. Easiest
+of all: sidebar → **Writing** → **Provider**, pick one, then put its key in
+Secrets.
 
 | Provider | Free tier | Where to get a key |
 |---|---|---|
