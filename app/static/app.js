@@ -405,6 +405,29 @@ function init() {
     state.selected = e.target.checked ? new Set(state.leads.map((l) => l.id)) : new Set();
     renderTable();
   });
+  $("#btnRestore").addEventListener("click", () => $("#restoreInput").click());
+  $("#restoreInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const mode = confirm(
+      "Restore this backup?\n\n" +
+      "OK  = replace everything currently in the list\n" +
+      "Cancel = keep what is here and only add what is missing"
+    ) ? "replace" : "merge";
+    if (mode === "replace" && !confirm("Last check: this deletes the rows you have now. Continue?")) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("mode", mode);
+    try {
+      const r = await api("/api/restore", { method: "POST", body: fd });
+      toast(`Restored ${r.added} store${r.added === 1 ? "" : "s"} (${r.skipped} skipped)`);
+      await refresh();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
   $("#btnClear").addEventListener("click", async () => {
     if (!confirm("Delete every row in the list? Personalized drafts go too.")) return;
     await api("/api/leads?keep=all", { method: "DELETE" });

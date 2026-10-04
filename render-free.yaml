@@ -1,0 +1,59 @@
+# Render blueprint for the FREE plan. Use this one if you are not paying.
+#
+# Why this file exists separately: the paid render.yaml asks for a persistent
+# disk, and Render refuses to apply a blueprint with a disk on a free instance.
+# So on free, storage is ephemeral - every deploy and idle restart wipes
+# outreach.db. Two consequences worth understanding before you start:
+#
+#   1. Your leads and generated messages WILL disappear on a redeploy.
+#      The app now has a Backup button for exactly this - download before you
+#      push code, restore after. It takes seconds.
+#   2. The service sleeps after 15 minutes idle and takes 30-60s to wake.
+#
+# If that sounds annoying, use Hugging Face Spaces instead (Dockerfile in this
+# repo, port 7860): free, 16 GB RAM, and it sleeps after 48 HOURS rather than
+# 15 minutes - see DEPLOY-FREE.md.
+#
+# To use: Render dashboard -> New -> Blueprint -> pick this repo -> set the
+# Blueprint file path to render-free.yaml
+
+services:
+  - type: web
+    name: video-outreach
+    runtime: python
+    plan: free
+    numInstances: 1
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: >-
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+      --proxy-headers
+      --forwarded-allow-ips="*"
+      --timeout-keep-alive 640
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+
+      # Set this to a password of your own choosing in the Render dashboard.
+      # Without it the app is wide open to anyone who finds the URL.
+      - key: APP_PASSWORD
+        sync: false
+
+      # Optional. Leave unset to write from templates instead of a model.
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: OUTREACH_HOSTED
+        value: "1"
+
+      # Kept in the project directory: there is no disk to mount on free.
+      - key: OUTREACH_DB
+        value: /opt/render/project/src/outreach.db
+
+    # No disk block. Free instances cannot attach one, and including it makes
+    # the blueprint fail to apply.

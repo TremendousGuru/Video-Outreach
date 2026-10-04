@@ -434,6 +434,39 @@ async def export_csv(scope: str = "ready"):
     )
 
 
+@app.get("/api/backup")
+async def backup_download():
+    """Everything, as one file. Free hosts have no persistent disk, so this is
+    what saves you when a redeploy wipes the database."""
+    import time as _time
+
+    payload = db.export_all()
+    stamp = _time.strftime("%Y%m%d-%H%M")
+    return Response(
+        content=json.dumps(payload, indent=1, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="outreach-backup-{stamp}.json"'},
+    )
+
+
+@app.post("/api/restore")
+async def restore_upload(file: UploadFile = File(...), mode: str = Form(default="replace")):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "That file is empty.")
+    if len(raw) > 40 * 1024 * 1024:
+        raise HTTPException(400, "That file is larger than 40 MB - probably not a backup.")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(400, "Could not read that as JSON. Pick the file you downloaded from Backup.")
+    try:
+        result = db.import_all(payload, mode="merge" if mode == "merge" else "replace")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return result
+
+
 @app.get("/api/export.json")
 async def export_json(scope: str = "ready"):
     leads = _export_rows(None)

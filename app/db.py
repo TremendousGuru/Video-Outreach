@@ -248,3 +248,115 @@ def clear_leads(keep: str | None = None) -> None:
         else:
             c.execute("DELETE FROM leads")
         c.commit()
+
+
+# --------------------------------------------------------------- backup/restore
+# Free hosting tiers have no persistent disk, so the database can vanish on a
+# deploy or an idle restart. These two functions make that recoverable: download
+# everything as a single JSON file, upload it later to get exactly back to where
+# you were.
+#
+# The API key is deliberately NOT included. A backup file is the kind of thing
+# that ends up in a Downloads folder or a chat message, and it already contains
+# real email addresses - no need to add a live credential to that.
+
+BACKUP_VERSION = 1
+LEAD_COLUMNS = (
+    "email", "domain", "store_name", "source_name", "status", "stage", "error",
+    "flags", "facts", "subjects", "subject", "body", "notes", "engine",
+    "created_at", "updated_at", "sent_at",
+)
+
+
+def export_all(include_api_key: bool = False) -> dict[str, Any]:
+    c = conn()
+    with _lock:
+        leads = [dict(r) for r in c.execute(f"SELECT {', '.join(LEAD_COLUMNS)} FROM leads ORDER BY id")]
+        settings_rows = {r["k"]: r["v"] for r in c.execute("SELECT k, v FROM settings")}
+    if not include_api_key:
+        settings_rows.pop("api_key", None)
+    return {
+        "format": "outreach-studio-backup",
+        "version": BACKUP_VERSION,
+        "exported_at": now(),
+        "lead_count": len(leads),
+        "settings": settings_rows,
+        "leads": leads,
+    }
+
+
+def import_all(payload: dict, mode: str = "replace") -> dict[str, int]:
+    """Restore a backup. mode='replace' wipes leads first; mode='merge' keeps
+    existing rows and skips duplicates."""
+    if not isinstance(payload, dict) or payload.get("format") != "outreach-studio-backup":
+        raise ValueError("That file is not an Outreach Studio backup.")
+    try:
+        version = int(payload.get("version", 0))
+    except (TypeError, ValueError):
+        version = 0
+    if version > BACKUP_VERSION:
+        raise ValueError(
+            f"Backup was made by a newer version (v{version}). Update the app first."
+        )
+
+    leads = payload.get("leads") or []
+    if not isinstance(leads, list):
+        raise ValueError("Backup file is malformed: 'leads' is not a list.")
+
+    c = conn()
+    added = skipped = 0
+    ts = now()
+    with _lock:
+        if mode != "merge":
+            c.execute("DELETE FROM leads")
+
+        existing = {
+            ((r["email"] or "").lower(), (r["domain"] or "").lower())
+            for r in c.execute("SELECT email, domain FROM leads")
+        }
+        for row in leads:
+            if not isinstance(row, dict):
+                skipped += 1
+                continue
+            email = (row.get("email") or "").strip().lower()
+            domain = (row.get("domain") or "").strip().lower()
+            if not email and not domain:
+                skipped += 1
+                continue
+            if (email, domain) in existing:
+                skipped += 1
+                continue
+            existing.add((email, domain))
+
+            def val(key: str, default: str = "") -> str:
+                v = row.get(key, default)
+                if v is None:
+                    return default
+                if isinstance(v, (list, dict)):
+                    return json.dumps(v)
+                return str(v)
+
+            c.execute(
+                f"""INSERT INTO leads ({', '.join(LEAD_COLUMNS)})
+                    VALUES ({', '.join('?' * len(LEAD_COLUMNS))})""",
+                (
+                    val("email"), val("domain"), val("store_name"), val("source_name"),
+                    val("status", "pending") or "pending", val("stage"), val("error"),
+                    val("flags", "[]") or "[]", val("facts"), val("subjects", "[]") or "[]",
+                    val("subject"), val("body"), val("notes"), val("engine"),
+                    val("created_at", ts) or ts, val("updated_at", ts) or ts, val("sent_at"),
+                ),
+            )
+            added += 1
+
+        settings = payload.get("settings") or {}
+        if isinstance(settings, dict):
+            for k, v in settings.items():
+                if k in DEFAULTS and k != "api_key":
+                    c.execute(
+                        "INSERT INTO settings (k, v) VALUES (?, ?) "
+                        "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                        (k, v if isinstance(v, str) else json.dumps(v)),
+                    )
+        c.commit()
+    return {"added": added, "skipped": skipped, "leads_in_file": len(leads)}

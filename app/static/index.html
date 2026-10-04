@@ -81,7 +81,9 @@ team@allbirds.com | allbirds.com"></textarea>
       <div class="toolbar-right">
         <button class="btn btn-ghost btn-sm" id="btnCrawlSelected">Crawl &amp; compose selected</button>
         <a class="btn btn-ghost btn-sm" href="/api/export.csv?scope=ready">Export CSV</a>
-        <a class="btn btn-ghost btn-sm" href="/api/export.json?scope=ready">Export JSON</a>
+        <a class="btn btn-ghost btn-sm" href="/api/backup" title="Download everything - leads, messages, settings - as one file">Backup</a>
+        <button class="btn btn-ghost btn-sm" id="btnRestore" title="Restore from a backup file">Restore</button>
+        <input type="file" id="restoreInput" accept=".json,application/json" style="display:none">
         <button class="btn btn-ghost btn-sm danger-text" id="btnClear">Clear list</button>
       </div>
     </div>

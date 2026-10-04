@@ -152,23 +152,30 @@ your mail client.
 
 ---
 
-## Deploying it (Render)
+## Deploying it
 
-Built as a local tool, so two things change when it goes on a public URL — see
-**[DEPLOY-RENDER.md](DEPLOY-RENDER.md)** for the full walkthrough:
+Built as a local tool, so two things change on a public URL:
 
 1. **Set `APP_PASSWORD`.** With it set you get a login page and every route is
    protected. Leave it unset and the app runs open, like it does on your laptop.
    `/health` tells you which mode you're in.
-2. **Mount a disk.** Render's free plan can't attach one, so `outreach.db` is
-   wiped on every deploy. Point `OUTREACH_DB` inside a mounted disk
-   (`/var/data/outreach.db`), or the app shows a warning banner in the header.
+2. **Decide what happens to your data.** No free host gives you a persistent
+   disk, so the app has **Backup** and **Restore** buttons: download everything
+   as one file, upload it back after a wipe.
 
-A blueprint is included:
+Pick a host:
 
-```bash
-# Render dashboard -> New -> Blueprint -> pick this repo
-# it reads render.yaml, then asks you for APP_PASSWORD
+| Guide | For |
+|---|---|
+| **[DEPLOY-FREE.md](DEPLOY-FREE.md)** | Free hosting, compared — HF Spaces, Render free, local + tunnel |
+| **[DEPLOY-RENDER.md](DEPLOY-RENDER.md)** | Render walkthrough (paid, with a persistent disk) |
+
+Included blueprints and config:
+
+```
+render-free.yaml   Render, free plan - no disk (use this on free)
+render.yaml        Render, paid plan - with a 1 GB persistent disk
+Dockerfile         Hugging Face Spaces and any Docker host (port 7860)
 ```
 
 It also refuses to crawl private/internal addresses, so a lead list containing
