@@ -196,13 +196,26 @@ async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store")
     payload = {
         "model": model,
         "temperature": 0.85,
-        "max_tokens": 800,
+        # Reasoning models (Groq's gpt-oss among them) generate their thinking as
+        # tokens and count it against THIS budget. At 800 a short email could lose
+        # the whole allowance to reasoning and come back empty. Groq's own
+        # quick-start uses 4096 for a one-line answer.
+        "max_tokens": 3000,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(build_facts_block(facts), settings, store_hint, subject_hint)},
         ],
     }
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    # Groq's gpt-oss models reason before answering, and that reasoning is billed
+    # against the same token budget. For a four-sentence cold email the thinking
+    # is worth nothing to the reader, so ask for it to be hidden and kept brief.
+    # Both parameters are Groq's; a provider that does not know them rejects the
+    # request by name and they are dropped below rather than failing the store.
+    if "groq" in base.lower():
+        payload["include_reasoning"] = False
+        payload["reasoning_effort"] = "low"
 
     async def post() -> httpx.Response:
         return await client.post(f"{base}/chat/completions", json=payload, headers=headers)
@@ -223,22 +236,52 @@ async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store")
         # Swap just that one key and retry, rather than dropping a store to a
         # template message over a naming difference between API generations.
         if r.status_code >= 400 and "max_tokens" in r.text:
-            payload["max_completion_tokens"] = payload.pop("max_tokens", 800)
+            payload["max_completion_tokens"] = payload.pop("max_tokens", 3000)
+            r = await post()
+        # A non-Groq endpoint that rejects the reasoning controls names them.
+        if r.status_code >= 400 and ("include_reasoning" in r.text or "reasoning_effort" in r.text):
+            payload.pop("include_reasoning", None)
+            payload.pop("reasoning_effort", None)
             r = await post()
         if r.status_code >= 400:
             raise RuntimeError(f"API {r.status_code}: {_api_error_message(r)}")
 
     data = r.json()
     try:
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        msg = choice["message"]
     except (KeyError, IndexError, TypeError):
         raise RuntimeError("unexpected API response shape")
+
+    content = msg.get("content") or ""
+    # Reasoning models may inline their thinking in <think> tags ahead of the
+    # answer. Left in place, the JSON regex below happily matches a brace inside
+    # the reasoning and the real answer is never reached.
+    content = re.sub(r"<\s*think\s*>.*?<\s*/\s*think\s*>", "", content,
+                     flags=re.S | re.I).strip()
 
     parsed = _parse_json(content)
     subjects = [re.sub(r"\s+", " ", str(s)).strip().strip('"') for s in (parsed.get("subjects") or []) if str(s).strip()]
     body = (parsed.get("body") or "").strip()
     if not body:
-        raise RuntimeError("model returned no body")
+        # Say which failure this was. "model returned no body" gave no clue that
+        # the usual cause is a reasoning model eating its token budget, and it
+        # contains the word "model", which previously sent the UI off blaming the
+        # model name.
+        budget = payload.get("max_completion_tokens") or payload.get("max_tokens")
+        finish = choice.get("finish_reason") or "?"
+        if finish == "length" or not content:
+            raise RuntimeError(
+                f"the model spent its whole {budget}-token budget without writing the "
+                f"message (finish_reason={finish}). Reasoning models such as Groq's "
+                "gpt-oss think before answering and that thinking is charged to the "
+                "same budget. Raise the limit in app/compose.py or use a "
+                "non-reasoning model."
+            )
+        raise RuntimeError(
+            f"the model's reply was not usable JSON, so no message could be read "
+            f"from it (first 120 characters: {content[:120]!r})"
+        )
     subjects = [s for s in subjects if 3 <= len(s) <= 90][:3]
     if not subjects:
         subjects = template_subjects(facts, settings)

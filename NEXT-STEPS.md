@@ -248,6 +248,14 @@ provider's console shows your own live limits.
 | **Groq** | Key can be created without a card. Models `openai/gpt-oss-120b` and `openai/gpt-oss-20b` verified live in Groq's own docs (2026-10-04). *Their rate-limit page labels its table "base limits for the Developer plan", so the exact **free** numbers are still unclear* | Models and keyless signup verified; limits unverified | [console.groq.com/keys](https://console.groq.com/keys) |
 | OpenRouter | `:free` models, ~20/min, 50/day | Reported, unverified | [openrouter.ai/keys](https://openrouter.ai/keys) |
 
+**A note on reasoning models (Groq's `gpt-oss`, Qwen 3.x).** These models think
+before they answer, and that thinking is generated as tokens that come out of the
+same budget as the email. Set the budget too low and the model can spend all of it
+thinking and return an empty message - which looks like a broken key or a wrong
+model name but is neither. The app now asks Groq to keep reasoning short and hidden,
+and allows 3000 tokens, so this should not reach you. If it ever does, the error
+says so in those words rather than blaming the model name.
+
 **GitHub Models carries a real caveat:** its free tier terms restrict use to
 *prototyping and experimentation*. Running a business tool on it is a grey area,
 so treat it as a way to try the AI writing, not a long-term home for it.

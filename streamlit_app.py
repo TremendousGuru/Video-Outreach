@@ -359,16 +359,50 @@ def _test_key(settings: dict) -> None:
                            "this app's secrets - and that the key belongs to the "
                            "provider selected above.")
             else:
-                # 404/400 is nearly always the model name, so ask what is available.
-                with st.spinner("Asking the endpoint what models it offers..."):
-                    models = _list_models(settings)
-                if models:
-                    st.warning(f"**The key works, but it cannot see the model "
-                               f"“{settings.get('model')}”.** Use one of these instead:")
-                    st.code("\n".join(models[:40]), language=None)
+                # Only claim a model-name problem when the error actually says so.
+                # "model returned no body" contains the word "model" but has
+                # nothing to do with the model's name, and answering it with a
+                # list of models the key can already see (the model being used
+                # among them) is worse than saying nothing.
+                model_problem = any(s in text for s in (
+                    "does not exist", "not found", "no such model", "unknown model",
+                    "model_not_found", "decommissioned", "deprecated",
+                    "unsupported model", "model not supported",
+                ))
+                budget_problem = any(s in text for s in (
+                    "token budget", "token limit", "empty message", "finish_reason",
+                ))
+                if budget_problem:
+                    st.warning(
+                        "**The key and the model name are both fine - the model ran out "
+                        "of tokens while thinking.** Reasoning models such as Groq's "
+                        "`gpt-oss` generate their reasoning as tokens and spend them from "
+                        "the same budget as the message, so a small limit can be used up "
+                        "before a single word of the email is written."
+                    )
+                    st.caption(
+                        "Already raised to 3000 tokens with reasoning set to low and hidden. "
+                        "If you still see this, choose a non-reasoning model - or raise the "
+                        "budget in `app/compose.py`."
+                    )
+                elif model_problem:
+                    with st.spinner("Asking the endpoint what models it offers..."):
+                        models = _list_models(settings)
+                    if models:
+                        st.warning(f"**The key works, but the endpoint does not recognise "
+                                   f"the model “{settings.get('model')}”.** "
+                                   "These are what it offers:")
+                        st.code("\n".join(models[:40]), language=None)
+                    else:
+                        st.caption("The model name was rejected and the endpoint would not "
+                                   "list its models. Check the Model field and the Base URL.")
                 else:
-                    st.caption("404/400 = wrong model name or endpoint · timeout = "
-                               "network. Nothing else in the app is affected.")
+                    st.caption(
+                        "The request reached the provider, so the key is fine, but the "
+                        "reply could not be used. The message above is the provider's own "
+                        "wording. Nothing else in the app is affected: stores fall back to "
+                        "template messages and the crawl log says which ones."
+                    )
         else:
             subject = (result.get("subjects") or ["(no subject)"])[0]
             st.success(f"Working - {result.get('engine')}")
