@@ -152,6 +152,34 @@ your mail client.
 
 ---
 
+## No web server? Use CLI mode
+
+If the web UI won't run — on a phone, a cheap laptop, a locked-down machine —
+there's a command-line mode that needs only `httpx` and `beautifulsoup4`:
+
+```bash
+python3 -m app.cli leads.csv --limit 5
+```
+
+It crawls, writes, and produces **`outbox.html`** — a tappable page where each
+store is a card with its subject, body and an "Open in Gmail" button that opens
+your mail app pre-filled. Re-running skips stores already finished, so you can
+work through a list in chunks.
+
+```
+--limit 5        only the first 5 stores (always start here)
+--redo           re-crawl and rewrite ones already done
+--no-ai          force templates even if a key is set
+--concurrency 3  how many stores at once
+```
+
+Outputs `outbox.html`, `messages.csv` and `outbox.json` (run state). All three are
+gitignored, since they contain real email addresses.
+
+**On Android with Pydroid 3:** see **[ANDROID.md](ANDROID.md)** — CLI mode is the
+recommended path there, and it covers what Pydroid can and can't do (it has no
+`git`, so pushing your code needs Termux, GitHub's web uploader, or a computer).
+
 ## Environment variables (optional)
 
 Instead of typing your key into the app, you can keep it in a `.env` file — which is **gitignored**, so

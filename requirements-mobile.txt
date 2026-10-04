@@ -1,0 +1,20 @@
+# Mobile / Pydroid 3 install list.
+#
+# Deliberately smaller than requirements.txt:
+#   uvicorn[standard]  -> pulls uvloop/httptools/watchfiles, all native builds
+#   lxml               -> native build, and BeautifulSoup falls back to
+#                         html.parser on its own
+#   python-multipart   -> only needed for the web UI's file uploader
+#
+# For CLI mode (the recommended path on a phone) you only need the first two.
+
+httpx
+beautifulsoup4
+
+# For the web UI, add these if they install cleanly on your device:
+#fastapi
+#uvicorn
+#python-multipart
+
+# For .xlsx lists (skip if you'll export as .csv):
+#openpyxl

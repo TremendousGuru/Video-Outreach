@@ -17,6 +17,14 @@ leads*.txt
 personalized-messages.*
 clients*.csv
 
+# CLI mode output - the outbox and its spreadsheet contain real email
+# addresses, and outbox.json holds both the leads and the written messages.
+outbox.html
+outbox.json
+outbox*.json
+messages.csv
+*.state.json
+
 # ---------------------------------------------------------------------------
 # SECRETS
 # ---------------------------------------------------------------------------
