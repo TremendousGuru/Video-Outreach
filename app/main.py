@@ -1,0 +1,326 @@
+"""Local outreach studio: upload -> crawl -> compose -> send."""
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import compose as composer
+from . import crawler, db, ingest, pipeline
+
+BASE = Path(__file__).resolve().parent
+app = FastAPI(title="Shopify Outreach Studio", docs_url=None, redoc_url=None)
+app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return (BASE / "static" / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True, "leads": len(db.list_leads())}
+
+
+# ------------------------------------------------------------------ settings
+
+@app.get("/api/settings")
+async def get_settings():
+    s = db.load_settings()
+    s.pop("api_key", None)
+    s["has_api_key"] = bool((db.load_settings().get("api_key") or "").strip())
+    s["key_from_env"] = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    return s
+
+
+@app.post("/api/settings")
+async def post_settings(patch: dict[str, Any] = Body(...)):
+    if patch.pop("clear_api_key", False):
+        db.save_settings({"api_key": ""})
+    if "api_key" in patch and patch["api_key"] == "":
+        patch.pop("api_key")
+    s = db.save_settings(patch)
+    env_ok = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    s.pop("api_key", None)
+    s["has_api_key"] = bool((db.load_settings().get("api_key") or "").strip())
+    s["key_from_env"] = env_ok
+    return s
+
+
+@app.post("/api/test-key")
+async def test_key():
+    s = db.load_settings()
+    if not (s.get("api_key") or "").strip():
+        raise HTTPException(400, "No API key saved yet.")
+    facts = {
+        "store_name": "Test Goods Co", "domain": "testgoods.com", "platform": "shopify",
+        "tagline": "Small-batch candles poured in Portland",
+        "products": [{"title": "Cedar & Smoke Candle", "price": "28.0", "type": "Candles"}],
+        "signals": ["small-batch"], "signal_phrases": ["small-batch production"],
+    }
+    try:
+        out = await composer.compose_ai(facts, s, store_hint="Test Goods Co")
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=200)
+    return {"ok": True, "engine": out.get("engine"), "sample_subject": (out.get("subjects") or [""])[0],
+            "sample_body": out.get("body", "")[:400]}
+
+
+# ------------------------------------------------------------------ ingest
+
+@app.post("/api/upload")
+async def upload(files: list[UploadFile] = File(default=[]), paste: str = Form(default="")):
+    rows: list[dict] = []
+    reports: list[dict] = []
+    for f in files or []:
+        data = await f.read()
+        if not data:
+            continue
+        try:
+            parsed = ingest.parse_file(f.filename or "upload.csv", data)
+        except Exception as e:  # noqa: BLE001
+            reports.append({"file": f.filename, "error": str(e)[:200], "added": 0})
+            continue
+        rows.extend(parsed)
+        reports.append({"file": f.filename, "added": len(parsed), "error": ""})
+    if (paste or "").strip():
+        parsed = ingest.parse_pasted(paste)
+        rows.extend(parsed)
+        reports.append({"file": "pasted text", "added": len(parsed), "error": ""})
+
+    if not rows:
+        return {"added": 0, "rows": [], "reports": reports,
+                "message": "Nothing usable found. Each row needs an email address and/or a store domain."}
+
+    inserted = db.insert_leads(rows)
+    return {"added": len(inserted), "reports": reports, "rows": rows[:40]}
+
+
+@app.get("/api/template.csv")
+async def template_csv():
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["email", "domain", "store_name"])
+    w.writerow(["hello@deathwishcoffee.com", "deathwishcoffee.com", "Death Wish Coffee"])
+    w.writerow(["", "browngirljane.com", "BROWN GIRL Jane"])
+    w.writerow(["team@allbirds.com", "allbirds.com", ""])
+    return Response(
+        content=buf.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leads-template.csv"'},
+    )
+
+
+# ------------------------------------------------------------------ leads
+
+@app.get("/api/leads")
+async def get_leads():
+    return {"leads": db.list_leads()}
+
+
+@app.get("/api/leads/{lead_id}")
+async def get_lead(lead_id: int):
+    lead = db.get_lead(lead_id, full=True)
+    if not lead:
+        raise HTTPException(404, "No such lead")
+    return lead
+
+
+@app.patch("/api/leads/{lead_id}")
+async def patch_lead(lead_id: int, patch: dict[str, Any] = Body(...)):
+    if not db.get_lead(lead_id):
+        raise HTTPException(404, "No such lead")
+    allowed = {k: v for k, v in patch.items() if k in {"email", "subject", "body", "status", "notes", "domain", "store_name"}}
+    if allowed.get("status") == "sent" and not allowed.get("sent_at"):
+        allowed["sent_at"] = db.now()
+    db.update_lead(lead_id, **allowed)
+    return db.get_lead(lead_id)
+
+
+@app.delete("/api/leads")
+async def delete_leads(keep: str = "all"):
+    db.clear_leads(keep=None if keep == "all" else keep)
+    return {"ok": True}
+
+
+@app.post("/api/leads/{lead_id}/recrawl")
+async def recrawl_lead(lead_id: int):
+    lead = db.get_lead(lead_id, full=True)
+    if not lead:
+        raise HTTPException(404, "No such lead")
+    db.update_lead(lead_id, facts="", status="pending")
+    run = pipeline.start_run([lead_id], db.load_settings())
+    return {"run_id": run.id}
+
+
+@app.post("/api/leads/{lead_id}/compose")
+async def compose_lead(lead_id: int):
+    lead = db.get_lead(lead_id, full=True)
+    if not lead:
+        raise HTTPException(404, "No such lead")
+    if not lead.get("facts"):
+        run = pipeline.start_run([lead_id], db.load_settings())
+        return {"run_id": run.id, "note": "no facts yet - crawling first"}
+    run_id = f"compose-{db.now()}"
+    pipeline.SUBSCRIBERS.setdefault(run_id, [])
+    settings = db.load_settings()
+
+    async def go():
+        lead2 = db.get_lead(lead_id, full=True)
+        facts = lead2.get("facts") or {}
+        if facts and "signal_phrases" not in facts:
+            facts["signal_phrases"] = crawler.signal_phrases(facts.get("signals") or [])
+        if facts and "strong_signals" not in facts:
+            facts["strong_signals"] = crawler.strong_signal_phrases(facts.get("signals") or [])
+        db.update_lead(lead_id, status="composing")
+        pipeline.bus_publish(run_id, {"type": "update", "id": lead_id, "status": "composing"})
+        out = await composer.compose(facts, settings, store_hint=facts.get("store_name") or "there")
+        subs = out.get("subjects") or [composer.local_subject_for(facts, settings)]
+        db.update_lead(lead_id, status="ready", subjects=subs, subject=subs[0], body=out.get("body", ""),
+                       engine=out.get("engine", ""), notes=(out.get("hook") or "")[:300], error="")
+        pipeline.bus_publish(run_id, {"type": "update", "id": lead_id, "status": "ready", "subjects": subs,
+                                      "subject": subs[0], "body": out.get("body", ""), "engine": out.get("engine", "")})
+        pipeline.bus_publish(run_id, {"type": "done"})
+
+    asyncio.get_running_loop().create_task(go())
+    return {"run_id": run_id}
+
+
+# ------------------------------------------------------------------ crawl runs
+
+@app.post("/api/crawl")
+async def start_crawl(payload: dict[str, Any] = Body(default={})):
+    ids = payload.get("ids") or None
+    statuses = payload.get("statuses")
+    if ids:
+        ids = [int(i) for i in ids]
+    else:
+        ids = db.lead_ids(statuses=statuses)
+        if not payload.get("redownload"):
+            ids = [i for i in ids if db.get_lead(i, full=True).get("status") not in ("ready",)]
+    if not ids:
+        raise HTTPException(400, "Nothing to crawl. Upload a list first.")
+    missing = [i for i in ids if not db.get_lead(i, full=True)]
+    if missing:
+        raise HTTPException(400, "Some rows no longer exist. Refresh the page.")
+    run = pipeline.start_run(ids, db.load_settings())
+    return run.snapshot()
+
+
+@app.get("/api/run/{run_id}")
+async def run_status(run_id: str):
+    run = pipeline.RUNNING.get(run_id)
+    if not run:
+        return {"state": "unknown"}
+    return run.snapshot()
+
+
+@app.get("/api/events/{run_id}")
+async def events(run_id: str, request: Request):
+    q = pipeline.subscribe(run_id)
+
+    async def gen():
+        try:
+            run = pipeline.RUNNING.get(run_id)
+            yield f"data: {json.dumps({'type': 'hello', **(run.snapshot() if run else {})})}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    r2 = pipeline.RUNNING.get(run_id)
+                    if r2 and r2.finished and q.empty():
+                        break
+                    continue
+                yield f"data: {json.dumps(ev)}\n\n"
+                if ev.get("type") == "done":
+                    break
+        finally:
+            pipeline.unsubscribe(run_id, q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive",
+    })
+
+
+@app.post("/api/run/{run_id}/cancel")
+async def cancel_run(run_id: str):
+    run = pipeline.RUNNING.get(run_id)
+    if run:
+        run.cancel = True
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ export
+
+def _export_rows(ids: list[int] | None) -> list[dict]:
+    out = []
+    for lead in db.list_leads():
+        if ids and lead["id"] not in ids:
+            continue
+        full = db.get_lead(lead["id"], full=True)
+        if not full:
+            continue
+        out.append(full)
+    return out
+
+
+@app.get("/api/export.csv")
+async def export_csv(scope: str = "ready"):
+    leads = _export_rows(None)
+    if scope == "ready":
+        leads = [l for l in leads if l.get("status") in ("ready", "sent")]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["email", "store_name", "domain", "subject", "body", "status", "engine", "hook", "sent_at"])
+    for l in leads:
+        body = l.get("body") or ""
+        w.writerow([
+            l.get("email", ""), l.get("store_name", ""), l.get("domain", ""),
+            l.get("subject", ""), body.replace("\n", "\\n"),
+            l.get("status", ""), l.get("engine", ""), l.get("notes", ""), l.get("sent_at", ""),
+        ])
+    return Response(
+        content=buf.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="personalized-messages.csv"'},
+    )
+
+
+@app.get("/api/export.json")
+async def export_json(scope: str = "ready"):
+    leads = _export_rows(None)
+    if scope == "ready":
+        leads = [l for l in leads if l.get("status") in ("ready", "sent")]
+    pack = [{
+        "to": l.get("email", ""), "store_name": l.get("store_name", ""), "domain": l.get("domain", ""),
+        "subject": l.get("subject", ""), "body": l.get("body", ""),
+        "subjects": l.get("subjects", []), "engine": l.get("engine", ""),
+        "hook": l.get("notes", ""), "status": l.get("status", ""),
+        "facts": l.get("facts", {}),
+    } for l in leads]
+    return Response(
+        content=json.dumps(pack, indent=2), media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="personalized-messages.json"'},
+    )
+
+
+def run(host: str | None = None, port: int | None = None) -> None:
+    import uvicorn
+
+    host = host or os.environ.get("HOST", "0.0.0.0")
+    port = int(port or os.environ.get("PORT", "8848"))
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    run()

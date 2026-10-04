@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# YOUR DATA - never commit this.
+# outreach.db holds your lead list (real email addresses, store names, notes)
+# and the messages you generated. Publishing that to GitHub would expose other
+# people's contact details.
+# ---------------------------------------------------------------------------
+outreach.db
+outreach.db-shm
+outreach.db-wal
+*.db
+*.sqlite3
+
+# Your uploaded/exported lead lists
+leads*.csv
+leads*.xlsx
+leads*.txt
+personalized-messages.*
+clients*.csv
+
+# ---------------------------------------------------------------------------
+# SECRETS
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# OS / editors
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~

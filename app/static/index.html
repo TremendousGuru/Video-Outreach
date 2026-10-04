@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outreach Studio</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="grain"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <div>
+      <h1>Outreach Studio</h1>
+      <p>Upload stores &rarr; crawl &rarr; personalized drafts &rarr; one click to send</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="keyBadge" class="badge badge-muted">checking…</span>
+    <button class="btn btn-ghost" id="btnSettings">Settings</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="panel" id="panelUpload">
+    <div class="panel-head">
+      <h2><span class="stepno">1</span> Add your list</h2>
+      <div class="panel-head-actions">
+        <button class="btn btn-ghost btn-sm" id="btnSample">Load 5 example stores</button>
+        <a class="btn btn-ghost btn-sm" href="/api/template.csv">Download CSV template</a>
+      </div>
+    </div>
+
+    <div class="upload-grid">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" multiple accept=".csv,.txt,.xlsx,.xlsm,.tsv,.xls">
+        <div class="dz-icon">&#8682;</div>
+        <div class="dz-title">Drop CSV, Excel or TXT here</div>
+        <div class="dz-sub">or click to browse &middot; needs an email, a domain, or both</div>
+      </label>
+
+      <div class="pastebox">
+        <textarea id="pasteInput" placeholder="Or paste rows straight in, one store per line — any order, commas / tabs / pipes all work:
+
+hello@deathwishcoffee.com, deathwishcoffee.com, Death Wish Coffee
+browngirljane.com
+team@allbirds.com | allbirds.com"></textarea>
+        <button class="btn btn-primary" id="btnPaste">Add pasted rows</button>
+      </div>
+    </div>
+
+    <div id="uploadReport" class="report"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2><span class="stepno">2</span> Crawl &amp; compose</h2>
+      <div class="panel-head-actions">
+        <select id="scopeSelect" class="select">
+          <option value="new">Only rows not done yet</option>
+          <option value="failed">Only failed rows</option>
+          <option value="all">Everything (re-writes finished ones)</option>
+        </select>
+        <button class="btn btn-primary" id="btnCrawl">Crawl &amp; compose</button>
+        <button class="btn btn-danger btn-sm hidden" id="btnCancel">Stop</button>
+      </div>
+    </div>
+
+    <div id="progressWrap" class="progress-wrap hidden">
+      <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-meta" id="progressMeta"></div>
+    </div>
+
+    <div class="table-toolbar">
+      <label class="chk"><input type="checkbox" id="checkAll"> <span id="selCount">0 selected</span></label>
+      <div class="toolbar-right">
+        <button class="btn btn-ghost btn-sm" id="btnCrawlSelected">Crawl &amp; compose selected</button>
+        <a class="btn btn-ghost btn-sm" href="/api/export.csv?scope=ready">Export CSV</a>
+        <a class="btn btn-ghost btn-sm" href="/api/export.json?scope=ready">Export JSON</a>
+        <button class="btn btn-ghost btn-sm danger-text" id="btnClear">Clear list</button>
+      </div>
+    </div>
+
+    <div class="table-scroll">
+      <table class="leads">
+        <thead>
+          <tr>
+            <th class="c-chk"></th>
+            <th>Store</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Detail</th>
+            <th class="c-act"></th>
+          </tr>
+        </thead>
+        <tbody id="leadRows">
+          <tr class="empty"><td colspan="6">No rows yet. Add a list above.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Runs entirely on your machine. Nothing is sent automatically — you always press send yourself.</span>
+  </footer>
+</main>
+
+<!-- ------------------------------------------------------------- settings -->
+<div class="modal hidden" id="settingsModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Settings</h3>
+      <button class="x" data-close>&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>AI writing</label>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="s_use_ai"> Use an AI model when a key is available</label>
+        </div>
+        <p class="hint" id="aiHint"></p>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>API key <span class="muted">(OpenAI, OpenRouter, Groq, Gemini-compat…)</span></label>
+          <div class="row">
+            <input type="password" id="s_api_key" placeholder="sk-… leave blank to keep unchanged">
+            <button class="btn btn-ghost btn-sm" id="btnTestKey">Test</button>
+            <button class="btn btn-ghost btn-sm danger-text" id="btnForgetKey" title="Delete the stored key">Forget</button>
+          </div>
+          <div id="keyTest" class="hint"></div>
+        </div>
+        <div class="field">
+          <label>Base URL</label>
+          <input type="text" id="s_base_url" placeholder="https://api.openai.com/v1">
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <input type="text" id="s_model" placeholder="gpt-4o-mini">
+        </div>
+        <div class="field">
+          <label>Extra context (optional)</label>
+          <input type="text" id="s_extra" placeholder="Anything else to tell the writer?">
+        </div>
+      </div>
+
+      <hr>
+      <h4>Your message</h4>
+      <div class="grid2">
+        <div class="field"><label>Your name</label><input type="text" id="s_sender_name" placeholder="Alex"></div>
+        <div class="field"><label>Company / handle (optional)</label><input type="text" id="s_sender_company" placeholder="Studio Nine"></div>
+      </div>
+      <div class="field">
+        <label>What you do (goes into the email)</label>
+        <input type="text" id="s_offer">
+      </div>
+      <div class="field">
+        <label>How you pitch the video</label>
+        <input type="text" id="s_video_line">
+      </div>
+      <div class="field">
+        <label>Call to action</label>
+        <input type="text" id="s_cta">
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Subject 1 idea (lowercase, blunt)</label><input type="text" id="s_subject_hint"></div>
+        <div class="field"><label>Tone</label><input type="text" id="s_tone"></div>
+      </div>
+      <div class="field">
+        <label class="chk"><input type="checkbox" id="s_optout"> Add an opt-out line at the end</label>
+        <input type="text" id="s_optout_line" style="margin-top:8px">
+      </div>
+
+      <hr>
+      <h4>Crawler</h4>
+      <div class="grid3">
+        <div class="field"><label>Stores at once</label><input type="number" id="s_concurrency" min="1" max="10"></div>
+        <div class="field"><label>Delay between requests (s)</label><input type="number" id="s_request_delay" step="0.1" min="0" max="10"></div>
+        <div class="field"><label>Max pages per store</label><input type="number" id="s_max_pages" min="2" max="12"></div>
+      </div>
+      <div class="field">
+        <label class="chk"><input type="checkbox" id="s_respect_robots"> Respect robots.txt</label>
+        <label class="chk"><input type="checkbox" id="s_find_missing_emails"> Hunt for a contact email when the row has none</label>
+        <label class="chk"><input type="checkbox" id="s_auto_compose"> Write the message right after crawling (uncheck to review sites first)</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close>Cancel</button>
+      <button class="btn btn-primary" id="btnSaveSettings">Save settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------------- drawer -->
+<div class="drawer-wrap hidden" id="drawerWrap">
+  <div class="drawer-backdrop" data-close-drawer></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <div>
+        <h3 id="dStore">—</h3>
+        <p id="dEmail" class="muted"></p>
+      </div>
+      <button class="x" data-close-drawer>&times;</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="message">Message</button>
+      <button class="tab" data-tab="facts">What we found</button>
+      <button class="tab" data-tab="sources">Sources</button>
+    </div>
+
+    <div class="drawer-body">
+      <div class="tabpane" data-pane="message">
+        <div class="field">
+          <label>Subject line</label>
+          <div id="dSubjects" class="chips"></div>
+          <input type="text" id="dSubject" placeholder="Subject">
+        </div>
+        <div class="field">
+          <label>Body</label>
+          <textarea id="dBody" rows="14"></textarea>
+          <div class="row space">
+            <span class="hint" id="dCount"></span>
+            <span class="hint" id="dEngine"></span>
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <button class="btn btn-primary" id="btnSendMail">Open in my email app</button>
+          <button class="btn btn-ghost" id="btnSendGmail">Open in Gmail web</button>
+          <button class="btn btn-ghost" id="btnCopy">Copy</button>
+        </div>
+        <div class="drawer-actions">
+          <button class="btn btn-ghost btn-sm" id="btnRegen">Rewrite this one</button>
+          <button class="btn btn-ghost btn-sm" id="btnSaveDraft">Save edits</button>
+          <button class="btn btn-ghost btn-sm" id="btnMarkSent">Mark as sent</button>
+          <button class="btn btn-ghost btn-sm" id="btnRecrawl">Re-crawl site</button>
+        </div>
+        <p class="hint" id="dShot"></p>
+      </div>
+
+      <div class="tabpane hidden" data-pane="facts">
+        <div id="dFacts" class="facts"></div>
+      </div>
+
+      <div class="tabpane hidden" data-pane="sources">
+        <p class="hint">Exactly which pages were read for this store. If any of these are missing, re-crawl.</p>
+        <ul id="dPages" class="pages"></ul>
+        <p class="hint" id="dFlags"></p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
