@@ -36,6 +36,11 @@ messages.csv
 secrets.json
 credentials.json
 
+# Streamlit's own secrets file. Streamlit Community Cloud keeps secrets in its
+# web UI, but if you run locally with `streamlit run` it may create this next to
+# your code - and it holds your password in plain text.
+.streamlit/secrets.toml
+
 # ---------------------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------------------

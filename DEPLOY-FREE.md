@@ -175,16 +175,17 @@ repo and runs a file you point it at. Every `git push` redeploys automatically.
 
 Notes specific to this host:
 
-- `requirements.txt` is installed as-is. This repo's `requirements.txt` is the
-  FastAPI one, so **point it at the Streamlit dependencies**: either copy
-  `requirements-streamlit.txt` over `requirements.txt` before deploying, or add
-  `streamlit` to `requirements.txt`. Extra packages it doesn't need only cost
-  build time, not money.
+- **No edits needed in the repo.** Streamlit Cloud installs the root
+  `requirements.txt`, which already lists everything both editions need. Just
+  pick the branch and the file.
 - `st.secrets` is mapped to the app's environment variables automatically, so
   `APP_PASSWORD` and `OPENAI_API_KEY` work exactly as described above.
 - A **private** app still asks visitors to sign in with Google/GitHub via
   Streamlit's own gate — put your `APP_PASSWORD` in Secrets as well and you get
   both layers.
+- **Rebooting is the fastest way to see an update.** Pushing to `main` triggers a
+  rebuild automatically, but if a change doesn't show up, use **Manage app →
+  Reboot**. A rebuild resets the database, so take a backup first.
 
 ---
 

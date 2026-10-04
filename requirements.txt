@@ -1,8 +1,31 @@
-fastapi>=0.110
-uvicorn[standard]>=0.27
+# This file is the union of both editions, on purpose.
+#
+# Hosts that read a single requirements.txt and no other file - Streamlit
+# Community Cloud is the one that matters - install exactly this list. Keeping
+# it complete means you can point such a host at the repo with no edits at all,
+# whichever entry point you run:
+#
+#   streamlit_app.py   the Streamlit edition (Streamlit Cloud, Hugging Face Spaces)
+#   app/main.py        the FastAPI edition (Docker, Render)
+#
+# Smaller lists exist for hosts where the extra packages are pure dead weight:
+#
+#   requirements-streamlit.txt   Streamlit UI only - what deploy-space.sh publishes
+#   requirements-mobile.txt      CLI mode only - no uvicorn, no native builds
+
+# --- the engine: needed by every edition, including CLI mode ---
 httpx>=0.27
 beautifulsoup4>=4.12
-lxml>=5.0
 openpyxl>=3.1
+
+# --- Streamlit edition ---
+streamlit>=1.40
+
+# --- FastAPI edition ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
 python-multipart>=0.0.9
 jinja2>=3.1
+
+# Faster HTML parsing. Optional: the crawler falls back to the stdlib parser.
+lxml>=5.0
