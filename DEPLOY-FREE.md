@@ -48,27 +48,81 @@ survivable* — which is what the Backup button in this app is for.
 
 ---
 
-## Why Hugging Face Spaces wins here
+## Which of the two free hosts, and why
 
-| | Render free | HF Spaces free |
+Both run the same `streamlit_app.py`. The difference is how code gets there, and
+how much machine you get.
+
+| | Streamlit Community Cloud | HF Spaces |
 |---|---|---|
-| RAM | 512 MB | **16 GB** |
-| CPU | 0.1 vCPU | **2 vCPU** |
-| Sleeps after | 15 minutes | **48 hours** |
-| Disk | None | ~50 GB (survives sleep, wiped on rebuild) |
+| RAM | ~1 GB | **16 GB** |
+| CPU | shared | **2 vCPU** |
+| Sleeps after | 12 hours idle | 48 hours idle |
+| How you deploy | **connects to your GitHub repo — click and done** | push files with `git` from a shell |
+| Redeploys when you push | **automatic** | only via the optional GitHub Action |
+| Private app | one allowed | free Spaces are public |
 
-For a crawler that holds several storefronts open at once, 16 GB vs 512 MB is not
-a small difference — Render free will rate-limit you sooner because it can't run
-much in parallel. And 48 hours of idle tolerance means you can use it in bursts
-across a working week without paying a cold-start tax every time.
+**The deciding factor here is deployment, not power.** Publishing to a Hugging
+Face Space means running a shell script (`./deploy-space.sh`) that clones the
+Space repo, copies the files and pushes them. That needs bash and git. If you are
+working from a phone, you don't have either — so a Space means uploading 33 files
+one at a time through a web form, and doing it again on every change.
 
-Two trade-offs to know: **free Spaces are public** (anyone can see the Space and
-its code — your login still protects the data), and the disk is **wiped on every
-rebuild**, though it survives sleep cycles.
+Streamlit Community Cloud connects to the GitHub repo you already have. You pick
+the branch and the file once; after that every `git push` redeploys itself. That
+is why it is Option 1 below.
+
+Pick a Space instead only if you need the 16 GB (a very large batch crawl) or want
+the app to stay awake for two days rather than twelve hours.
 
 ---
 
-## Option 1 — Hugging Face Spaces (recommended)
+## Option 1 — Streamlit Community Cloud (recommended)
+
+Same app, same repo, and **no build script at all**: it connects to your GitHub
+repo and runs a file you point it at. Every `git push` redeploys automatically.
+
+| | HF Spaces free | Streamlit Cloud free |
+|---|---|---|
+| RAM | 16 GB | ~1 GB |
+| Sleeps after | 48 hours | 12 hours |
+| Deploy | push files to the Space | **connects to your GitHub repo** |
+| Private apps | no (free Spaces are public) | one private app allowed |
+
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+2. **New app** → **Deploy a public app from GitHub**:
+   - Repository: `TremendousGuru/Video-Outreach`
+   - Branch: `main`
+   - **Main file path: `streamlit_app.py`**
+3. **Advanced settings → Secrets**, and paste:
+   ```toml
+   APP_PASSWORD = "your password"
+   ```
+   This is the equivalent of a Space secret. It is never written into the repo.
+4. Deploy. Your URL is `https://SOME-NAME.streamlit.app`.
+
+Notes specific to this host:
+
+- **No edits needed in the repo.** Streamlit Cloud installs the root
+  `requirements.txt`, which already lists everything both editions need. Just
+  pick the branch and the file.
+- `st.secrets` is mapped to the app's environment variables automatically, so
+  `APP_PASSWORD` and `OPENAI_API_KEY` work exactly as described above.
+- A **private** app still asks visitors to sign in with Google/GitHub via
+  Streamlit's own gate — put your `APP_PASSWORD` in Secrets as well and you get
+  both layers.
+- **Rebooting is the fastest way to see an update.** Pushing to `main` triggers a
+  rebuild automatically, but if a change doesn't show up, use **Manage app →
+  Reboot**. A rebuild resets the database, so take a backup first.
+
+---
+
+## Option 2 — Hugging Face Spaces (also free, needs a shell)
+
+The bigger machine, but the more awkward one to publish to from a phone: this
+path needs bash and git to run `deploy-space.sh`. Covered in full because it is
+still free and still works, and it is the better host if you ever want to run
+very large batches.
 
 ### Where the password goes — read this first
 
@@ -154,46 +208,6 @@ Then `git push` → GitHub → Space rebuilds. Nothing to remember.
 
 ---
 
-## Option 2 — Streamlit Community Cloud (easiest redeploys)
-
-Same app, same repo, and **no build script at all**: it connects to your GitHub
-repo and runs a file you point it at. Every `git push` redeploys automatically.
-
-| | HF Spaces free | Streamlit Cloud free |
-|---|---|---|
-| RAM | 16 GB | ~1 GB |
-| Sleeps after | 48 hours | 12 hours |
-| Deploy | push files to the Space | **connects to your GitHub repo** |
-| Private apps | no (free Spaces are public) | one private app allowed |
-
-1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
-2. **New app** → **Deploy a public app from GitHub**:
-   - Repository: `TremendousGuru/Video-Outreach`
-   - Branch: `main`
-   - **Main file path: `streamlit_app.py`**
-3. **Advanced settings → Secrets**, and paste:
-   ```toml
-   APP_PASSWORD = "your password"
-   ```
-   This is the equivalent of a Space secret. It is never written into the repo.
-4. Deploy. Your URL is `https://SOME-NAME.streamlit.app`.
-
-Notes specific to this host:
-
-- **No edits needed in the repo.** Streamlit Cloud installs the root
-  `requirements.txt`, which already lists everything both editions need. Just
-  pick the branch and the file.
-- `st.secrets` is mapped to the app's environment variables automatically, so
-  `APP_PASSWORD` and `OPENAI_API_KEY` work exactly as described above.
-- A **private** app still asks visitors to sign in with Google/GitHub via
-  Streamlit's own gate — put your `APP_PASSWORD` in Secrets as well and you get
-  both layers.
-- **Rebooting is the fastest way to see an update.** Pushing to `main` triggers a
-  rebuild automatically, but if a change doesn't show up, use **Manage app →
-  Reboot**. A rebuild resets the database, so take a backup first.
-
----
-
 ## Option 3 — Render free tier
 
 **Use `render-free.yaml`, not `render.yaml`.** The paid blueprint asks for a disk,
@@ -266,6 +280,7 @@ change that makes *any* free host safe. Say the word if you want it.
 
 | Your situation | Do this |
 |---|---|
+| Working from a phone, want it live with the least fiddling | **Streamlit Community Cloud** |
 | Want the most capacity free, data loss acceptable | **HF Spaces** (Streamlit SDK) |
 | Want redeploys to be automatic on every `git push` | **Streamlit Community Cloud** |
 | Already have Render open, want it live in 5 minutes | **Render free** + Backup/Restore before deploys |

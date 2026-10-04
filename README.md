@@ -178,7 +178,7 @@ There are two front ends over the same engine. Pick by what your host supports:
 
 | Edition | Entry point | Runs on |
 |---|---|---|
-| **Streamlit** | `streamlit_app.py` | Hugging Face Spaces (free), Streamlit Community Cloud, any machine |
+| **Streamlit** | `streamlit_app.py` | Streamlit Community Cloud (recommended), Hugging Face Spaces (free), any machine |
 | FastAPI | `app/main.py` | Docker, Render, a VPS — needs `uvicorn` |
 
 Hugging Face made the Docker SDK a paid feature in July 2026, so **Streamlit is
@@ -189,7 +189,7 @@ Pick a host:
 
 | Guide | For |
 |---|---|
-| **[DEPLOY-FREE.md](DEPLOY-FREE.md)** | Free hosting, compared — HF Spaces, Streamlit Cloud, Render free, local + tunnel |
+| **[DEPLOY-FREE.md](DEPLOY-FREE.md)** | Free hosting, compared — Streamlit Cloud, HF Spaces, Render free, local + tunnel |
 | **[DEPLOY-RENDER.md](DEPLOY-RENDER.md)** | Render walkthrough (paid, with a persistent disk) |
 
 Included blueprints and config:

@@ -2,6 +2,17 @@
 
 Your code is on GitHub. This is the rest, start to finish.
 
+**Where this deploys to:** **Streamlit Community Cloud**
+(https://share.streamlit.io) — a free host that connects to your GitHub repo.
+Not Hugging Face, and nothing is live anywhere yet.
+
+> The word "Streamlit" is used for two different things and they are easy to mix
+> up. It is the name of the *app framework* this project uses, **and** the name of
+> this *hosting company*. Hugging Face Spaces has a Space type also called
+> "Streamlit", which is a different thing again. Both hosts run the same app; this
+> guide uses Streamlit Community Cloud because it needs no shell — it just
+> connects to your GitHub repo.
+
 ---
 
 ## 0. Optional but recommended: make the repo private first
