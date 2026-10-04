@@ -218,7 +218,12 @@ async def compose_ai(facts: dict, settings: dict, store_hint: str = "the store")
             attempt += 1
             await asyncio.sleep(_retry_delay(r, attempt))
             r = await post()
-        if r.status_code >= 400 and "response_format" in r.text:
+        # Newer reasoning-style models (Groq's gpt-oss entries among them) renamed
+        # max_tokens to max_completion_tokens and reject the old name with a 400.
+        # Swap just that one key and retry, rather than dropping a store to a
+        # template message over a naming difference between API generations.
+        if r.status_code >= 400 and "max_tokens" in r.text:
+            payload["max_completion_tokens"] = payload.pop("max_tokens", 800)
             r = await post()
         if r.status_code >= 400:
             raise RuntimeError(f"API {r.status_code}: {_api_error_message(r)}")

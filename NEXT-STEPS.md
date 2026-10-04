@@ -245,7 +245,7 @@ provider's console shows your own live limits.
 | Provider | Free tier | Confidence | Where to get a key |
 |---|---|---|---|
 | **GitHub Models** | 10–15 req/min, 50–150/day, uses the GitHub account you already have | Verified in GitHub's own docs | [github.com/settings/tokens](https://github.com/settings/tokens) |
-| **Groq** | Makes a free tier available, no card — *but their rate-limit page labels its table "base limits for the Developer plan"*, so the exact free numbers are unclear | **Unverified — check their console** | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Groq** | Key can be created without a card. Models `openai/gpt-oss-120b` and `openai/gpt-oss-20b` verified live in Groq's own docs (2026-10-04). *Their rate-limit page labels its table "base limits for the Developer plan", so the exact **free** numbers are still unclear* | Models and keyless signup verified; limits unverified | [console.groq.com/keys](https://console.groq.com/keys) |
 | OpenRouter | `:free` models, ~20/min, 50/day | Reported, unverified | [openrouter.ai/keys](https://openrouter.ai/keys) |
 
 **GitHub Models carries a real caveat:** its free tier terms restrict use to
