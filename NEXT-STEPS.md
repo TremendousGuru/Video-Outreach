@@ -4,7 +4,13 @@ Your code is on GitHub. This is the rest, start to finish.
 
 **Where this deploys to:** **Streamlit Community Cloud**
 (https://share.streamlit.io) — a free host that connects to your GitHub repo.
-Not Hugging Face, and nothing is live anywhere yet.
+Nothing is live anywhere yet.
+
+**Not Hugging Face.** We tried it: the Space took the upload, then refused to
+start with `Quota exceeded for flavor cpu-basic ... limit=0`. Hugging Face no
+longer gives new free accounts any compute — not for Streamlit, not for Gradio,
+not for Docker. Your Space is back to its original placeholder; nothing of yours
+is broken there.
 
 > The word "Streamlit" is used for two different things and they are easy to mix
 > up. It is the name of the *app framework* this project uses, **and** the name of

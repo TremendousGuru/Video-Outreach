@@ -24,21 +24,42 @@ Sources: [Render's own comparison](https://render.com/articles/platforms-with-a-
 [a 2026 free-tier survey](https://livemy.app/blog/free-hosting-that-doesnt-sleep),
 [Hugging Face's paywall discussion](https://discuss.huggingface.co/t/docker-sdk-now-marked-as-paid-when-creating-a-new-space/177580).
 
-### The July 2026 Hugging Face change
+### The 2026 Hugging Face change — free compute is gone
 
-Without an announcement, Hugging Face moved Docker and Gradio Spaces behind a
-subscription. Creating one now fails with:
+Since July 2026, **no compute Space runs free on a new account**, whatever the
+SDK. The creation form still offers Streamlit, so it looks like a free option,
+but the Space fails the moment it tries to start:
 
-> Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on
-> free cpu-basic requires a PRO subscription.
+```
+Quota exceeded for flavor cpu-basic (requested=1): current=0, limit=0
+```
 
-Spaces created **before** the change kept running, but new free accounts get
-Streamlit (and static) only. This project therefore ships **two editions**:
+That was measured on a real free account with an empty Spaces list — `limit=0`
+means the allowance is zero, so there is nothing to pause or free up. The
+`.hf.space` address returns **503** and the Space sits PAUSED. Only **static**
+Spaces (plain HTML, no compute) still run.
+
+Hugging Face's own forum has a stream of identical reports from new and verified
+accounts, including people deploying Streamlit Spaces for a class:
+
+- [Free cpu-basic quota is 0 on new account](https://discuss.huggingface.co/t/free-cpu-basic-quota-is-0-on-new-account/180764) (Sept 2026)
+- [CPU-basic quota limit error with only 1 paused Space](https://discuss.huggingface.co/t/cpu-basic-quota-limit-error-with-only-1-paused-space-account-ibbo2121-body/180332)
+- [Not Deploy in huggingface](https://discuss.huggingface.co/t/not-deploy-in-huggingface/178083) — "a free Streamlit Space (CPU basic)" refused
+
+Earlier wording from Hugging Face named only Gradio and Docker ("Static Spaces
+are free for everyone, but hosting Gradio and Docker Spaces on free cpu-basic
+requires a PRO subscription"). In practice Streamlit is refused too.
+
+**So on the free tier: a Space can host your source code, but it cannot run
+it.** That is why this guide leads with Streamlit Community Cloud.
+
+Both editions still deploy to a Space if you ever get PRO — `./deploy-space.sh`
+publishes the Streamlit one (default) and `--docker` the FastAPI one.
 
 | Edition | File | Publishing it |
 |---|---|---|
-| **Streamlit** (free, recommended) | `streamlit_app.py` | `./deploy-space.sh` — the default |
-| FastAPI + Docker (needs a paid Space) | `app/main.py` | `./deploy-space.sh --docker` |
+| **Streamlit** | `streamlit_app.py` | `./deploy-space.sh` — the default |
+| FastAPI + Docker | `app/main.py` | `./deploy-space.sh --docker` |
 
 Both run the same crawler and the same composer. Only the interface differs.
 

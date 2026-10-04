@@ -26,10 +26,12 @@ sdk: streamlit
 app_file: streamlit_app.py
 ```
 
-> **Why Streamlit and not Docker?** In July 2026 Hugging Face started charging for
-> the Docker and Gradio SDKs on `cpu-basic`; the Streamlit SDK is still free. The
-> project also ships a FastAPI edition (`app/main.py`) with a Dockerfile, and
-> `./deploy-space.sh --docker` publishes that instead — but it needs a paid Space.
+> **Needs a paid Space.** Since July 2026 Hugging Face charges for Docker and
+> Gradio Spaces, and in practice Streamlit is refused too: a free account gets
+> `Quota exceeded for flavor cpu-basic ... limit=0`, and the app never starts.
+> This deploys fine to **Streamlit Community Cloud** instead — see DEPLOY-FREE.md.
+> The FastAPI edition (`app/main.py`, Dockerfile) publishes with
+> `./deploy-space.sh --docker`.
 
 ### Signing in
 

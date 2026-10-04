@@ -178,12 +178,15 @@ There are two front ends over the same engine. Pick by what your host supports:
 
 | Edition | Entry point | Runs on |
 |---|---|---|
-| **Streamlit** | `streamlit_app.py` | Streamlit Community Cloud (recommended), Hugging Face Spaces (free), any machine |
+| **Streamlit** | `streamlit_app.py` | Streamlit Community Cloud (recommended), any machine — see below for Spaces |
 | FastAPI | `app/main.py` | Docker, Render, a VPS — needs `uvicorn` |
 
-Hugging Face made the Docker SDK a paid feature in July 2026, so **Streamlit is
-the free path** on Spaces. `./deploy-space.sh` publishes that one by default;
-`./deploy-space.sh --docker` publishes the FastAPI edition instead.
+Hugging Face made Docker and Gradio paid in July 2026, and in practice the
+**Streamlit SDK is refused too** — a free Space accepts the files but cannot
+start, returning "Quota exceeded for flavor cpu-basic ... limit=0". So
+**Streamlit Community Cloud is the free path**. The Space tooling still works if
+you ever get PRO: `./deploy-space.sh` publishes the Streamlit edition by default,
+`--docker` the FastAPI one. Full evidence in DEPLOY-FREE.md.
 
 Pick a host:
 
