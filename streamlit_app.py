@@ -114,7 +114,7 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 
 # Shown in the sidebar so "is the new build actually running?" has an answer
 # you can check on a phone instead of guessing from behaviour.
-BUILD = "2026-10-05b · opened-draft sections + write-later switch"
+BUILD = "2026-10-05c · sections + write-later switch + full settings"
 
 
 # Every one of these speaks the OpenAI chat-completions shape, so the only thing
@@ -537,6 +537,10 @@ def sidebar_settings() -> dict:
     with st.sidebar:
         sender = st.text_input("Your name", value=settings.get("sender_name", ""),
                                help="Used in the sign-off.")
+        sender_company = st.text_input("Company or handle (optional)",
+                                       value=settings.get("sender_company", ""),
+                                       help="Second line of the sign-off. Leave blank "
+                                            "to sign with just your name.")
         offer = st.text_input("What you do", value=settings.get("offer", ""))
         video_line = st.text_input("How you pitch the video", value=settings.get("video_line", ""))
         cta = st.text_input("Call to action", value=settings.get("cta", ""))
@@ -545,6 +549,27 @@ def sidebar_settings() -> dict:
         st.markdown("### Crawler")
         concurrency = st.slider("Stores at once", 1, 8, int(settings.get("concurrency", 3) or 3))
         limit_hint = st.caption("On a free host, 2-3 is safer.")
+        request_delay = st.number_input(
+            "Pause between requests (seconds)", min_value=0.0, max_value=10.0,
+            value=float(settings.get("request_delay", 0.5) or 0.0), step=0.1,
+            help="How long to wait between pages on the same store. Raise this if "
+                 "stores start failing with HTTP 429 - that is the site telling you "
+                 "you are going too fast.",
+        )
+        max_pages = st.slider("Pages to read per store", 2, 12,
+                              int(settings.get("max_pages", 5) or 5),
+                              help="Homepage and products always count. This caps the "
+                                   "extra pages: about, privacy, shipping, contact.")
+        max_products = st.slider("Products to read per store", 5, 60,
+                                 int(settings.get("max_products", 25) or 25),
+                                 help="More products means a better chance the message "
+                                      "mentions one the owner recognises.")
+        find_missing_emails = st.checkbox(
+            "Hunt for a contact email when the row has none",
+            value=bool(settings.get("find_missing_emails", True)),
+            help="Reads addresses off the pages it already fetched. Only runs for "
+                 "rows with an empty email column.",
+        )
         auto_compose = st.checkbox(
             "Write the message right after crawling",
             value=bool(settings.get("auto_compose", True)),
@@ -557,6 +582,9 @@ def sidebar_settings() -> dict:
         st.markdown("### Writing")
         use_ai = st.checkbox("Use the AI model when a key is set",
                              value=bool(settings.get("use_ai", True)))
+        tone = st.text_input("Tone", value=settings.get("tone", ""),
+                             help="Goes into the prompt the model is given.",
+                             disabled=not use_ai)
 
         # Picking a provider by name keeps the endpoint out of the user's hands -
         # the usual mistake is a URL missing its /openai suffix, which returns a
@@ -610,10 +638,14 @@ def sidebar_settings() -> dict:
 
         if st.button("Save settings", use_container_width=True):
             db.save_settings({
-                "sender_name": sender, "offer": offer, "video_line": video_line,
+                "sender_name": sender, "sender_company": sender_company,
+                "offer": offer, "video_line": video_line,
                 "cta": cta, "subject_hint": subject_hint, "concurrency": concurrency,
                 "use_ai": use_ai, "model": model, "optout": optout,
                 "respect_robots": robots, "auto_compose": auto_compose,
+                "request_delay": request_delay, "max_pages": max_pages,
+                "max_products": max_products,
+                "find_missing_emails": find_missing_emails, "tone": tone,
             })
             st.success("Saved")
 
