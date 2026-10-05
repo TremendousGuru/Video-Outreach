@@ -114,7 +114,7 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 
 # Shown in the sidebar so "is the new build actually running?" has an answer
 # you can check on a phone instead of guessing from behaviour.
-BUILD = "2026-10-05 · opened-draft sections"
+BUILD = "2026-10-05b · opened-draft sections + write-later switch"
 
 
 # Every one of these speaks the OpenAI chat-completions shape, so the only thing
