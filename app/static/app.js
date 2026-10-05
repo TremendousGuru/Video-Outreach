@@ -350,8 +350,10 @@ async function loadSettings() {
   const map = {
     s_sender_name: "sender_name", s_sender_company: "sender_company", s_offer: "offer",
     s_video_line: "video_line", s_cta: "cta", s_subject_hint: "subject_hint", s_tone: "tone",
+    s_subject_style: "subject_style",
     s_optout_line: "optout_line", s_base_url: "base_url", s_model: "model",
     s_concurrency: "concurrency", s_request_delay: "request_delay", s_max_pages: "max_pages",
+    s_max_products: "max_products",
   };
   for (const [id, key] of Object.entries(map)) {
     const el = $("#" + id);
@@ -388,9 +390,11 @@ async function saveSettings() {
     sender_name: $("#s_sender_name").value, sender_company: $("#s_sender_company").value,
     offer: $("#s_offer").value, video_line: $("#s_video_line").value, cta: $("#s_cta").value,
     subject_hint: $("#s_subject_hint").value, tone: $("#s_tone").value, optout_line: $("#s_optout_line").value,
+    subject_style: $("#s_subject_style").value,
     base_url: $("#s_base_url").value, model: $("#s_model").value,
     concurrency: +$("#s_concurrency").value || 4, request_delay: +$("#s_request_delay").value || 0,
     max_pages: +$("#s_max_pages").value || 5,
+    max_products: +$("#s_max_products").value || 25,
     optout: $("#s_optout").checked, use_ai: $("#s_use_ai").checked,
     respect_robots: $("#s_respect_robots").checked, find_missing_emails: $("#s_find_missing_emails").checked,
     auto_compose: $("#s_auto_compose").checked,

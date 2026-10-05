@@ -29,7 +29,8 @@ _conn: sqlite3.Connection | None = None
 DEFAULTS: dict[str, Any] = {
     "sender_name": "",
     "sender_company": "",
-    "sender_email": "",
+    # No sender_email: nothing reads it. The app never sends mail itself - it
+    # hands a draft to your own mail app, which already knows your address.
     "offer": "I make short product videos for Shopify stores",
     "tone": "friendly, direct, no fluff, sounds like a real person",
     "subject_style": "mix",

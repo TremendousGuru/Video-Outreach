@@ -64,4 +64,35 @@ body = composer.template_body({"store_name": "Alpha", "products": [{"title": "Wo
                                "domain": "alpha.com"}, after)
 assert "Studio Nine" in body["body"], body["body"]
 print("sender_company reaches the email body ✅")
+# 5. Parity: every setting the engine reads must be reachable from BOTH UIs.
+#    This is what let six settings sit unreachable on the hosted app.
+import re as _re
+_js = open(os.path.join(root, "app", "static", "app.js"), encoding="utf-8").read()
+_j = _js.index("async function saveSettings")
+_patch = _js[_js.index("const patch = {", _j):_js.index("// No key here on purpose", _j)]
+local_saves = set(_re.findall(r"(?:^|[,{])\s*(\w+):", _patch, _re.M))
+
+_i = src.index('if st.button("Save settings"')
+_block = src[src.index("db.save_settings({", _i):src.index("})", _i)]
+hosted_saves = set(_re.findall(r'"(\w+)":', _block))
+
+need = set(db.DEFAULTS) - {"api_key", "base_url", "model"}
+assert not (need - hosted_saves), f"hosted sidebar cannot set: {sorted(need - hosted_saves)}"
+assert not (need - local_saves), f"local UI cannot set: {sorted(need - local_saves)}"
+print(f"  ok  all {len(need)} engine settings reachable from both UIs")
+
+# 6. And no DEFAULTS key may be dead - a setting nothing reads is a knob that
+#    looks like it does something.
+dead = []
+for k in db.DEFAULTS:
+    hits = 0
+    for f in ("crawler.py", "compose.py", "pipeline.py", "cli.py", "main.py"):
+        hits += len(_re.findall(rf'settings\.get\(\s*["\']{k}["\']',
+                                open(os.path.join(root, "app", f), encoding="utf-8").read()))
+    hits += len(_re.findall(rf'settings\.get\(\s*["\']{k}["\']', src))
+    if not hits:
+        dead.append(k)
+assert not dead, f"dead settings nothing reads: {dead}"
+print("  ok  no dead settings in DEFAULTS")
+
 print("\nPASSED")

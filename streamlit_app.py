@@ -148,7 +148,7 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 
 # Shown in the sidebar so "is the new build actually running?" has an answer
 # you can check on a phone instead of guessing from behaviour.
-BUILD = "2026-10-05d · self-healing reload + full settings"
+BUILD = "2026-10-05e · full settings parity in both UIs"
 
 
 # Every one of these speaks the OpenAI chat-completions shape, so the only thing
@@ -579,6 +579,12 @@ def sidebar_settings() -> dict:
         video_line = st.text_input("How you pitch the video", value=settings.get("video_line", ""))
         cta = st.text_input("Call to action", value=settings.get("cta", ""))
         subject_hint = st.text_input("Subject line idea", value=settings.get("subject_hint", ""))
+        subject_style = st.text_input(
+            "Subject line style", value=settings.get("subject_style", "mix"),
+            help="Passed to the model as a style note for the subject lines it "
+                 "offers. \"mix\" gives you a blunt one, a question and a plain "
+                 "one to choose between.",
+        )
 
         st.markdown("### Crawler")
         concurrency = st.slider("Stores at once", 1, 8, int(settings.get("concurrency", 3) or 3))
@@ -668,6 +674,11 @@ def sidebar_settings() -> dict:
 
         st.markdown("### Safety")
         optout = st.checkbox("Add an opt-out line", value=bool(settings.get("optout", True)))
+        optout_line = st.text_input(
+            "Opt-out wording", value=settings.get("optout_line", ""),
+            disabled=not optout,
+            help="The exact sentence that goes after the sign-off.",
+        )
         robots = st.checkbox("Respect robots.txt", value=bool(settings.get("respect_robots", True)))
 
         if st.button("Save settings", use_container_width=True):
@@ -675,6 +686,7 @@ def sidebar_settings() -> dict:
                 "sender_name": sender, "sender_company": sender_company,
                 "offer": offer, "video_line": video_line,
                 "cta": cta, "subject_hint": subject_hint, "concurrency": concurrency,
+                "subject_style": subject_style, "optout_line": optout_line,
                 "use_ai": use_ai, "model": model, "optout": optout,
                 "respect_robots": robots, "auto_compose": auto_compose,
                 "request_delay": request_delay, "max_pages": max_pages,
