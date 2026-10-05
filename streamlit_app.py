@@ -545,6 +545,14 @@ def sidebar_settings() -> dict:
         st.markdown("### Crawler")
         concurrency = st.slider("Stores at once", 1, 8, int(settings.get("concurrency", 3) or 3))
         limit_hint = st.caption("On a free host, 2-3 is safer.")
+        auto_compose = st.checkbox(
+            "Write the message right after crawling",
+            value=bool(settings.get("auto_compose", True)),
+            help="Uncheck this to crawl a batch first and read what was actually "
+                 "found on each site, then write the messages in a second pass. "
+                 "Saves model calls on stores that turned out to be empty, "
+                 "password-protected, or not really a shop.",
+        )
 
         st.markdown("### Writing")
         use_ai = st.checkbox("Use the AI model when a key is set",
@@ -605,7 +613,7 @@ def sidebar_settings() -> dict:
                 "sender_name": sender, "offer": offer, "video_line": video_line,
                 "cta": cta, "subject_hint": subject_hint, "concurrency": concurrency,
                 "use_ai": use_ai, "model": model, "optout": optout,
-                "respect_robots": robots,
+                "respect_robots": robots, "auto_compose": auto_compose,
             })
             st.success("Saved")
 
@@ -713,6 +721,63 @@ def tab_crawl(settings: dict) -> None:
                    f"{ok} ready, {failed} failed. Open **Review & send**.")
         st.balloons() if ok and not failed else None
 
+    # The other half of the "crawl first, write later" switch in the sidebar.
+    # Without this, the only way to write those messages would be to crawl every
+    # store a second time, which is exactly the waste the switch was meant to avoid.
+    unwritten = [l for l in leads if l["status"] == "crawled"]
+    if unwritten:
+        st.divider()
+        st.info(f"**{len(unwritten)} store{'s' if len(unwritten) != 1 else ''} "
+                f"crawled, no message written yet.** Check what was found on each "
+                "one (Review & send → ⋯ → What we found), then write them here. "
+                "This re-uses the stored facts — nothing is re-crawled.")
+        if st.button(f"✍️ Write {len(unwritten)} message"
+                     f"{'s' if len(unwritten) != 1 else ''} from the stored facts",
+                     type="primary", key="compose_now"):
+            progress = st.progress(0.0, text="Starting...")
+            log = st.container()
+            ok = failed = 0
+            started = time.time()
+            for i, row in enumerate(unwritten, 1):
+                lead = db.get_lead(row["id"], full=True)
+                name = (lead.get("store_name") or lead.get("domain")
+                        or f"row {lead['id']}")
+                facts = lead.get("facts") or {}
+                facts["signal_phrases"] = crawler.signal_phrases(facts.get("signals") or [])
+                facts["strong_signals"] = crawler.strong_signal_phrases(facts.get("signals") or [])
+                db.update_lead(lead["id"], status="composing", stage="writing message", error="")
+                try:
+                    composed = run_async(composer.compose(
+                        facts, settings,
+                        store_hint=facts.get("store_name") or name or "there"))
+                    body = (composed.get("body") or "").strip()
+                    if not body:
+                        raise RuntimeError("composer returned nothing")
+                except Exception as e:  # noqa: BLE001 - one bad store must not stop the batch
+                    failed += 1
+                    db.update_lead(lead["id"], status="failed", stage="",
+                                   error=f"{type(e).__name__}: {e}"[:200])
+                    log.write(f"❌ **{name}** - {type(e).__name__}: {e}")
+                else:
+                    ok += 1
+                    subs = composed.get("subjects") or [composer.local_subject_for(facts, settings)]
+                    db.update_lead(
+                        lead["id"], status="ready", stage="", subjects=subs, subject=subs[0],
+                        body=body, engine=composed.get("engine", ""),
+                        notes=(composed.get("hook") or "")[:300],
+                    )
+                    log.write(f"✅ **{name}** - {subs[0]}")
+                    if composed.get("fallback_reason"):
+                        log.caption(f"⚠️ {name}: AI failed, used templates: "
+                                    f"{composed['fallback_reason'][:120]}")
+                progress.progress(i / len(unwritten), text=f"{i} of {len(unwritten)} - {name}")
+
+            progress.progress(1.0, text="Done")
+            st.success(f"Wrote {ok} message{'s' if ok != 1 else ''} in "
+                       f"{round(time.time() - started, 1)}s"
+                       + (f" - {failed} failed." if failed else ". Open **Review & send**."))
+            st.rerun()
+
 
 def _ago(iso: str) -> str:
     """'3m ago' - the only part of a timestamp worth putting on a card."""
@@ -744,6 +809,10 @@ def _state_badge(lead: dict) -> str:
         return "failed"
     if state == "working":
         return STATUS_LABEL.get(lead.get("status", ""), "queued")
+    # A store crawled with automatic writing switched off has no message yet, so
+    # calling it "to send" would be a lie you only find out by opening the card.
+    if not (lead.get("body") or "").strip():
+        return "crawled · not written yet"
     return "to send"
 
 
