@@ -319,7 +319,10 @@ carry on.
    the stores one at a time. Pressing it again later only does the ones not
    finished yet.
 4. **Tab 3 · Review & send** — read each message, edit anything that reads
-   wrong. **Open in my email app** fills in the subject and body; you press send.
+   wrong. **✉️ Open draft** fills in the subject and body; you press send. The
+   list is split into sections — **To send**, **Opened**, **Sent**, **Failed** —
+   and opening a draft moves that store into **Opened** on its own, so you can
+   always see what is left without keeping it in your head.
 5. Once the wording feels right, add the rest of your list and run it in batches
    of 20–40.
 

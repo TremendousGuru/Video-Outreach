@@ -74,10 +74,62 @@ CREATE TABLE IF NOT EXISTS leads (
     engine TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    sent_at TEXT NOT NULL DEFAULT ''
+    sent_at TEXT NOT NULL DEFAULT '',
+    opened_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
 """
+
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS never alters
+# an existing file, so databases made by an older build get them here instead.
+_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    # When the draft was opened in a mail app. Distinct from sent_at on purpose:
+    # tapping "open the draft" is not the same as sending it, and pretending
+    # otherwise is what made the list impossible to read.
+    ("opened_at", "opened_at TEXT NOT NULL DEFAULT ''"),
+)
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    have = {r["name"] for r in c.execute("PRAGMA table_info(leads)")}
+    for name, ddl in _MIGRATIONS:
+        if name not in have:
+            c.execute(f"ALTER TABLE leads ADD COLUMN {ddl}")
+    c.commit()
+
+
+def state_of(lead: dict[str, Any]) -> str:
+    """Which section of the UI this row belongs to.
+
+    A row can be several of these things at once, so the order matters: a lead
+    that was opened and then marked sent is "sent", not "opened".
+
+        sent     you pressed send (or marked it)
+        opened   the draft was opened but never confirmed - the "did I already
+                 email this one?" bucket
+        failed   crawl or compose blew up
+        to_send  a message is written and waiting
+        working  still in the queue / crawling / composing
+    """
+    if lead.get("status") == "sent" or (lead.get("sent_at") or ""):
+        return "sent"
+    if lead.get("opened_at"):
+        return "opened"
+    if lead.get("status") == "failed":
+        return "failed"
+    if lead.get("status") in ("ready", "crawled"):
+        return "to_send"
+    return "working"
+
+
+def mark_opened(lead_id: int) -> None:
+    """Record that the draft for this store was opened in a mail app."""
+    update_lead(lead_id, opened_at=now())
+
+
+def unmark_opened(lead_id: int) -> None:
+    """Put an opened row back in the to-send list."""
+    update_lead(lead_id, opened_at="")
 
 
 def now() -> str:
@@ -116,6 +168,7 @@ def conn() -> sqlite3.Connection:
             _conn.row_factory = sqlite3.Row
             _conn.execute("PRAGMA journal_mode=WAL")
             _conn.executescript(SCHEMA)
+            _migrate(_conn)
             _conn.commit()
             # Older versions let a key be saved from the settings form. Wipe any
             # such row on open, so a stale key cannot survive in the database,
@@ -198,6 +251,7 @@ def update_lead(lead_id: int, **fields: Any) -> None:
     allowed = {
         "email", "domain", "store_name", "status", "stage", "error", "flags", "facts",
         "subjects", "subject", "body", "notes", "engine", "sent_at", "source_name",
+        "opened_at",
     }
     sets, vals = [], []
     for k, v in fields.items():
@@ -235,6 +289,7 @@ def get_lead(lead_id: int, full: bool = False) -> dict[str, Any] | None:
             d["facts"] = {}
     else:
         d["has_facts"] = bool(d.pop("facts", ""))
+    d["state"] = state_of(d)
     return d
 
 
@@ -242,7 +297,7 @@ def list_leads() -> list[dict[str, Any]]:
     rows = conn().execute(
         """SELECT id, email, domain, store_name, source_name, status, stage, error, flags,
                   subjects, subject, length(body) AS body_len, notes, engine, created_at, sent_at,
-                  (facts != '') AS has_facts
+                  opened_at, (facts != '') AS has_facts
            FROM leads ORDER BY id"""
     ).fetchall()
     out = []
@@ -254,6 +309,7 @@ def list_leads() -> list[dict[str, Any]]:
             except (json.JSONDecodeError, TypeError):
                 d[k] = []
         d["has_facts"] = bool(d.get("has_facts"))
+        d["state"] = state_of(d)
         out.append(d)
     return out
 
@@ -294,7 +350,7 @@ BACKUP_VERSION = 1
 LEAD_COLUMNS = (
     "email", "domain", "store_name", "source_name", "status", "stage", "error",
     "flags", "facts", "subjects", "subject", "body", "notes", "engine",
-    "created_at", "updated_at", "sent_at",
+    "created_at", "updated_at", "sent_at", "opened_at",
 )
 
 
@@ -375,6 +431,7 @@ def import_all(payload: dict, mode: str = "replace") -> dict[str, int]:
                     val("flags", "[]") or "[]", val("facts"), val("subjects", "[]") or "[]",
                     val("subject"), val("body"), val("notes"), val("engine"),
                     val("created_at", ts) or ts, val("updated_at", ts) or ts, val("sent_at"),
+                    val("opened_at"),
                 ),
             )
             added += 1

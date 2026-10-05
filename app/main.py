@@ -299,7 +299,9 @@ async def get_lead(lead_id: int):
 async def patch_lead(lead_id: int, patch: dict[str, Any] = Body(...)):
     if not db.get_lead(lead_id):
         raise HTTPException(404, "No such lead")
-    allowed = {k: v for k, v in patch.items() if k in {"email", "subject", "body", "status", "notes", "domain", "store_name"}}
+    allowed = {k: v for k, v in patch.items()
+               if k in {"email", "subject", "body", "status", "notes", "domain", "store_name",
+                        "opened_at", "sent_at"}}
     if allowed.get("status") == "sent" and not allowed.get("sent_at"):
         allowed["sent_at"] = db.now()
     db.update_lead(lead_id, **allowed)

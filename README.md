@@ -83,7 +83,8 @@ Click **Open** on any row. You get three tabs:
 - **Sources** — every URL that was read and its HTTP status, so you can verify the personalization
 
 Then **Open in my email app** (or **Open in Gmail web**) — subject and body land pre-filled and you
-press send. The row flips to `sent` so you don't double-email anyone.
+press send. Opening the draft moves the row into the **Opened** section by itself, so the list
+always shows what is left; press **Mark as sent** once you have actually sent it.
 
 ---
 
@@ -226,9 +227,11 @@ python3 -m app.cli leads.csv --limit 5
 ```
 
 It crawls, writes, and produces **`outbox.html`** — a tappable page where each
-store is a card with its subject, body and an "Open in Gmail" button that opens
-your mail app pre-filled. Re-running skips stores already finished, so you can
-work through a list in chunks.
+store is a card with its subject, body and an "Open draft" button that opens
+your mail app pre-filled. Tapping one moves that card into an **Opened** section
+at the bottom (remembered on the device), so you can see at a glance what is
+left. Re-running skips stores already finished, so you can work through a list
+in chunks.
 
 ```
 --limit 5        only the first 5 stores (always start here)

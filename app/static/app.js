@@ -9,6 +9,29 @@ const STATUS_LABEL = {
   ready: "ready", sent: "sent", failed: "failed",
 };
 
+/* The list is shown in sections rather than as one flat table, so a store you
+   already emailed cannot look identical to one you have not. Order matters:
+   the to-send section is first because that is where the next tap goes. */
+const SECTIONS = [
+  { key: "to_send", title: "To send",      note: "Message written, draft never opened." },
+  { key: "opened",  title: "Opened",       note: "You opened the draft but never confirmed it went. Check these before emailing again." },
+  { key: "sent",    title: "Sent",         note: "Confirmed sent." },
+  { key: "failed",  title: "Failed",       note: "Crawl or writing did not finish." },
+  { key: "working", title: "In progress",  note: "Queued, crawling or being written." },
+];
+const STATE_LABEL = { to_send: "to send", opened: "opened", sent: "sent", failed: "failed", working: "working" };
+
+/* Mirror of db.state_of() for rows patched client-side, where the server has
+   not sent a fresh copy yet. */
+function stateOf(l) {
+  if (!l) return "working";
+  if (l.status === "sent" || l.sent_at) return "sent";
+  if (l.opened_at) return "opened";
+  if (l.status === "failed") return "failed";
+  if (l.status === "ready" || l.status === "crawled") return "to_send";
+  return "working";
+}
+
 /* ------------------------------------------------------------------ utils */
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
@@ -41,25 +64,24 @@ function renderTable() {
     tb.innerHTML = `<tr class="empty"><td colspan="6">No rows yet. Add a list above.</td></tr>`;
     return;
   }
-  tb.innerHTML = state.leads.map((l) => {
-    const sel = state.selected.has(l.id);
-    const st = l.status || "pending";
-    const detail = [];
-    if (l.error) detail.push(`<span class="warn">${esc(l.error)}</span>`);
-    else if (l.engine) detail.push(esc(l.engine));
-    if (l.notes) detail.push("hook: " + esc(l.notes.slice(0, 70)));
-    if (l.has_facts) detail.push(`${(l.subjects || []).length} subject option${(l.subjects || []).length === 1 ? "" : "s"}`);
-    return `<tr data-id="${l.id}" class="${sel ? "selected" : ""}">
-      <td class="c-chk"><input type="checkbox" class="rowchk" data-id="${l.id}" ${sel ? "checked" : ""}></td>
-      <td class="store-cell"><b>${esc(l.store_name || "—")}</b><span class="dom">${esc(l.domain || "")}</span></td>
-      <td class="email-cell" title="${esc(l.email)}">${esc(l.email || "<no email yet>")}</td>
-      <td><span class="pill st-${st}">${STATUS_LABEL[st] || st}</span></td>
-      <td class="detail-cell">${detail.join(" · ")}</td>
-      <td class="c-act">
-        <button class="iconbtn" data-open="${l.id}" title="Open">Open</button>
-      </td>
-    </tr>`;
-  }).join("");
+  const groups = {};
+  state.leads.forEach((l) => {
+    const s = l.state || stateOf(l);
+    (groups[s] = groups[s] || []).push(l);
+  });
+
+  const out = [];
+  SECTIONS.forEach((sec) => {
+    const rows = groups[sec.key] || [];
+    if (!rows.length) return;
+    out.push(
+      `<tr class="section-head sec-${sec.key}"><td colspan="6">` +
+      `<b>${esc(sec.title)}</b><span class="count">${rows.length}</span>` +
+      `<span class="note">${esc(sec.note)}</span></td></tr>`
+    );
+    rows.forEach((l) => out.push(rowHtml(l, sec.key)));
+  });
+  tb.innerHTML = out.join("");
 
   $$("#leadRows .rowchk").forEach((c) =>
     c.addEventListener("change", () => {
@@ -69,7 +91,47 @@ function renderTable() {
     })
   );
   $$("#leadRows [data-open]").forEach((b) => b.addEventListener("click", () => openDrawer(+b.dataset.open)));
+  $$("#leadRows [data-marksent]").forEach((b) =>
+    b.addEventListener("click", () => markSent(+b.dataset.marksent))
+  );
   $("#selCount").textContent = `${state.selected.size} selected`;
+}
+
+function rowHtml(l, sec) {
+  const sel = state.selected.has(l.id);
+  const st = l.status || "pending";
+  const detail = [];
+  if (l.error) detail.push(`<span class="warn">${esc(l.error)}</span>`);
+  else if (l.engine) detail.push(esc(l.engine));
+  if (l.opened_at) detail.push(`draft opened ${timeAgo(l.opened_at)}`);
+  else if (l.notes) detail.push("hook: " + esc(l.notes.slice(0, 70)));
+  if (l.has_facts) detail.push(`${(l.subjects || []).length} subject option${(l.subjects || []).length === 1 ? "" : "s"}`);
+  return `<tr data-id="${l.id}" class="sec-${sec}${sel ? " selected" : ""}">
+    <td class="c-chk"><input type="checkbox" class="rowchk" data-id="${l.id}" ${sel ? "checked" : ""}></td>
+    <td class="store-cell"><b>${esc(l.store_name || "—")}</b><span class="dom">${esc(l.domain || "")}</span></td>
+    <td class="email-cell" title="${esc(l.email)}">${esc(l.email || "<no email yet>")}</td>
+    <td><span class="pill st-${st}">${esc(STATE_LABEL[sec] || STATUS_LABEL[st] || st)}</span></td>
+    <td class="detail-cell">${detail.join(" · ")}</td>
+    <td class="c-act">
+      <div class="row-actions">
+        <button class="iconbtn" data-open="${l.id}" title="Open the draft">Open</button>
+        <button class="iconbtn" data-marksent="${l.id}" title="Mark as sent">&#10003;</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+/* Confirming a send from the list, without opening the drawer. */
+async function markSent(id) {
+  await api(`/api/leads/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "sent", sent_at: new Date().toISOString() }),
+  });
+  const l = state.leads.find((x) => x.id === id);
+  if (l) { l.status = "sent"; l.sent_at = new Date().toISOString(); l.state = "sent"; }
+  renderTable();
+  if (state.current === id) loadDrawer(id);
+  toast("Moved to Sent.");
 }
 
 async function refresh() {
@@ -171,6 +233,14 @@ async function loadDrawer(id) {
   state.detail = l;
   $("#dStore").textContent = l.store_name || l.domain || `Row ${l.id}`;
   $("#dEmail").textContent = l.email || "no email address yet";
+  // Where this row currently sits, so the panel and the list cannot disagree.
+  const sec = l.state || stateOf(l);
+  const secInfo = SECTIONS.find((s) => s.key === sec) || {};
+  const when = sec === "opened" && l.opened_at ? ` · ${timeAgo(l.opened_at)}`
+    : sec === "sent" && l.sent_at ? ` · ${timeAgo(l.sent_at)}` : "";
+  const badge = $("#dState");
+  badge.textContent = (secInfo.title || sec) + when;
+  badge.className = `pill st-${sec}`;
   $("#dSubject").value = l.subject || "";
   $("#dBody").value = l.body || "";
   $("#dCount").textContent = l.body ? `${(l.body.match(/\S+/g) || []).length} words · ${l.body.length} chars` : "";
@@ -259,15 +329,18 @@ async function sendVia(kind) {
   if (!subject) { toast("Give it a subject line first.", true); return; }
   await saveDraft(true);
   const url = kind === "gmail" ? gmailUrl(to, subject, body) : mailtoUrl(to, subject, body);
-  window.open(url, kind === "gmail" ? "_blank" : "_self");
+  // Opened, not sent. Opening a draft proves nothing about whether the send
+  // button was pressed, and calling it "sent" is what made the list confusing.
+  // The row moves to the Opened section; "Mark as sent" is the confirmation.
   await api(`/api/leads/${state.current}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "sent", sent_at: new Date().toISOString() }),
+    body: JSON.stringify({ opened_at: new Date().toISOString() }),
   });
+  window.open(url, kind === "gmail" ? "_blank" : "_self");
   const l = state.leads.find((x) => x.id === state.current);
-  if (l) l.status = "sent";
+  if (l) { l.opened_at = new Date().toISOString(); l.state = stateOf(l); }
   renderTable();
-  toast("Marked as sent. Update the row if you ended up not sending it.");
+  toast("Draft opened. The row moved to Opened - press \"Mark as sent\" once you have actually sent it.");
 }
 
 /* -------------------------------------------------------------- settings */
@@ -439,15 +512,18 @@ function init() {
     await navigator.clipboard.writeText(`Subject: ${$("#dSubject").value}\n\n${$("#dBody").value}`);
     toast("Subject and body copied");
   });
-  $("#btnMarkSent").addEventListener("click", async () => {
+  $("#btnMarkSent").addEventListener("click", () => markSent(state.current));
+  // Undo for a mis-tap: clears opened_at, so the row goes back to To send.
+  $("#btnBackToSend").addEventListener("click", async () => {
     await api(`/api/leads/${state.current}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "sent", sent_at: new Date().toISOString() }),
+      body: JSON.stringify({ opened_at: "" }),
     });
     const l = state.leads.find((x) => x.id === state.current);
-    if (l) l.status = "sent";
+    if (l) { l.opened_at = ""; l.state = stateOf(l); }
     renderTable();
-    toast("Marked as sent");
+    await loadDrawer(state.current);
+    toast("Back in To send.");
   });
   $("#btnRegen").addEventListener("click", async () => {
     await saveDraft(true);

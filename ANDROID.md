@@ -92,11 +92,16 @@ outbox.json     run state - re-running skips stores already finished
 Open `outbox.html` with Chrome. You'll see one card per store:
 
 - **Subject** and the full **body**, already written from that store's real products
-- **Open in Gmail** — tap, Gmail opens with everything filled in, you hit send
+- **Open draft** — tap, your mail app opens with everything filled in, you hit send
 - **Gmail web** — same but in the browser, if the app link misbehaves
 - **Copy** — for pasting into Outlook or anything else
 - **Sent ✓** — tap after you send. The page remembers it on this device, so you
   can close Chrome, come back tomorrow, and not email anyone twice.
+
+Tapping either open button moves that card down into an **Opened** section — the
+page remembers it on this device too. So the top of the page is always "what you
+have not emailed yet", and you can close Chrome mid-list and pick up where you
+stopped.
 
 ---
 

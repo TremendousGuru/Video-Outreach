@@ -103,8 +103,24 @@ table.leads th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-
 table.leads td{padding:11px 10px;border-bottom:1px solid #1a1f26;vertical-align:middle}
 table.leads tr:hover td{background:#151920}
 table.leads tr.selected td{background:#132220}
-.c-chk{width:34px}.c-act{width:76px;text-align:right}
+.c-chk{width:34px}.c-act{width:112px;text-align:right}
 tr.empty td{color:var(--muted);text-align:center;padding:34px 10px}
+/* Row actions sit side by side in a fixed grid so the column never changes
+   width as the buttons appear and disappear. */
+.row-actions{display:grid;grid-template-columns:auto auto;gap:4px;justify-content:end}
+/* Section headers: the list is grouped, not one flat table, so a store you
+   already emailed cannot look the same as one you have not. */
+tr.section-head td{background:#12161c;padding:9px 10px;border-bottom:1px solid var(--line2);
+  border-top:1px solid var(--line2);white-space:nowrap}
+tr.section-head b{font-size:12.5px;letter-spacing:.03em;text-transform:uppercase}
+tr.section-head .count{font:11.5px/1 var(--mono);color:var(--muted);border:1px solid var(--line2);
+  border-radius:99px;padding:3px 7px;margin-left:8px}
+tr.section-head .note{color:var(--muted);font-size:12px;margin-left:10px;white-space:normal}
+tr.sec-opened td,tr.sec-sent td{color:var(--muted)}
+tr.sec-opened .store-cell b,tr.sec-sent .store-cell b{font-weight:500;opacity:.75}
+tr.sec-opened{opacity:.72}
+tr.sec-sent{opacity:.5}
+tr.sec-opened:hover,tr.sec-sent:hover{opacity:1}
 .store-cell b{display:block;font-weight:600}
 .store-cell span{font-size:12px;color:var(--muted);font-family:var(--mono)}
 .dom{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
@@ -114,6 +130,8 @@ tr.empty td{color:var(--muted);text-align:center;padding:34px 10px}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .st-pending{color:var(--muted)} .st-crawling,.st-composing{color:var(--accent)}
 .st-crawled{color:#93c5fd} .st-ready{color:var(--ok)} .st-sent{color:#a78bfa} .st-failed{color:var(--err)}
+/* Section colours, used by the list pill and the panel badge. */
+.st-to_send{color:var(--ok)} .st-opened{color:var(--warn)} .st-working{color:var(--muted)}
 .detail-cell{font-size:12.5px;color:var(--muted);max-width:320px}
 .detail-cell .warn{color:var(--warn)}
 .iconbtn{background:none;border:1px solid transparent;color:var(--muted);cursor:pointer;font-size:13px;
@@ -155,7 +173,13 @@ tr.empty td{color:var(--muted);text-align:center;padding:34px 10px}
   padding:8px 12px;cursor:pointer}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .drawer-body{padding:18px 20px 28px;overflow-y:auto}
-.drawer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.drawer-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.drawer-actions .btn{width:100%;padding:9px 8px;font-size:12.5px;text-align:center;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:680px){
+  .drawer-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .drawer-actions .btn{padding:11px 6px;font-size:13px}
+}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .chip{font-size:12.5px;padding:5px 10px;border-radius:99px;border:1px solid var(--line2);background:var(--panel2);
   color:var(--muted);cursor:pointer}

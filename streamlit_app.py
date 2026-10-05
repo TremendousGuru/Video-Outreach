@@ -90,6 +90,77 @@ STATUS_LABEL = {
     "composing": "writing", "ready": "ready", "sent": "sent", "failed": "failed",
 }
 
+# Review & send is a list of sections, not one long list. A store whose draft you
+# already opened must not look identical to one you have never touched - that is
+# the whole "did I already email this one?" problem. Order is the order they are
+# rendered in.
+REVIEW_SECTIONS = (
+    ("to_send", "📤 To send", "Message written, draft never opened."),
+    ("opened", "👁 Opened", "You tapped these already. Check whether the send actually went."),
+    ("sent", "✅ Sent", "Confirmed sent."),
+    ("failed", "❌ Failed", "Crawl or writing did not finish."),
+    ("working", "⏳ In progress", "Queued, crawling or being written."),
+)
+
+# The two "open the draft" links are plain anchors rather than st.link_button,
+# because a link button's click never reaches Python - and if Python cannot see
+# the click, it cannot move the row out of the way. The anchor carries the lead
+# id, and a tiny script (see _OPEN_TRACKER_JS) reports the click back.
+_MAIL_CSS = """<style>
+a.mailopen{display:flex;align-items:center;justify-content:center;gap:.3rem;width:100%;
+  height:2.5rem;padding:0 .5rem;border-radius:.5rem;text-decoration:none;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;font-size:.875rem;font-weight:600;
+  background:__PRIMARY__;color:#fff}
+a.mailopen.secondary{background:transparent;color:inherit;font-weight:400;
+  border:1px solid rgba(151,166,195,.45)}
+a.mailopen:hover{filter:brightness(1.12)}
+/* The tracker's checkboxes are plumbing, not controls. */
+div[data-testid="stCheckbox"][aria-label^="__open_"]{display:none}
+</style>"""
+
+# Runs in a zero-height component iframe. Streamlit sandboxes those with
+# allow-scripts + allow-same-origin, so the script can reach the page's own DOM;
+# clicking a hidden Streamlit checkbox is how the click gets back to Python.
+# If any of it fails, nothing breaks: the anchor still opens the mail app, and
+# the "⋯" menu has a manual "Mark as opened" as a fallback.
+_OPEN_TRACKER_JS = """<script>
+(function () {
+  function doc() {
+    try { return window.parent.document; } catch (e) { return null; }
+  }
+  function report(id) {
+    var d = doc();
+    if (!d) return;
+    var input = d.querySelector(
+      'div[data-testid="stCheckbox"][aria-label="__open_' + id + '__"] input');
+    if (input && !input.checked) input.click();
+  }
+  function arm() {
+    var d = doc();
+    if (!d) return;
+    var links = d.querySelectorAll('a[data-lead-open]');
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      if (a.getAttribute('data-armed')) continue;
+      a.setAttribute('data-armed', '1');
+      (function (a) {
+        a.addEventListener('click', function () {
+          try { report(a.getAttribute('data-lead-open')); } catch (e) {}
+        });
+      })(a);
+    }
+  }
+  try {
+    arm();
+    var timer = null;
+    new MutationObserver(function () {
+      if (timer) return;
+      timer = setTimeout(function () { timer = null; arm(); }, 200);
+    }).observe(doc().body, { childList: true, subtree: true });
+  } catch (e) {}
+})();
+</script>"""
+
 
 # ---------------------------------------------------------------------------
 # Auth. Streamlit keeps this in session_state rather than a cookie, which
@@ -591,122 +662,219 @@ def tab_crawl(settings: dict) -> None:
         st.balloons() if ok and not failed else None
 
 
+def _ago(iso: str) -> str:
+    """'3m ago' - the only part of a timestamp worth putting on a card."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    secs = max(0, (datetime.now(timezone.utc) - dt).total_seconds())
+    if secs < 90:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)}m ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    return f"{int(secs // 86400)}d ago"
+
+
+def _state_badge(lead: dict) -> str:
+    state = db.state_of(lead)
+    if state == "opened":
+        return f"opened {_ago(lead.get('opened_at', ''))}".strip()
+    if state == "sent":
+        return f"sent {_ago(lead.get('sent_at', ''))}".strip()
+    if state == "failed":
+        return "failed"
+    if state == "working":
+        return STATUS_LABEL.get(lead.get("status", ""), "queued")
+    return "to send"
+
+
+def _mail_anchor(lead_id: int, url: str, label: str, primary: bool = False) -> str:
+    """A link that opens the draft, tagged so the click can be reported back."""
+    import html as _html
+
+    cls = "mailopen" + ("" if primary else " secondary")
+    target = ' target="_blank" rel="noopener"' if url.startswith("http") else ""
+    return (f'<a class="{cls}" href="{_html.escape(url, quote=True)}"{target} '
+            f'data-lead-open="{lead_id}">{label}</a>')
+
+
+def _on_draft_opened(lead_id: int) -> None:
+    """Widget callback: the browser just reported a draft was opened.
+
+    Saves the edits at the same time. The link that was tapped was built from
+    whatever was on screen, so if you retyped the subject and tapped straight
+    away, the stored version would otherwise disagree with what you sent.
+    """
+    patch: dict = {"opened_at": db.now()}
+    subject = st.session_state.get(f"subj_{lead_id}")
+    body = st.session_state.get(f"body_{lead_id}")
+    if subject is not None:
+        patch["subject"] = subject
+    if body is not None:
+        patch["body"] = body
+    db.update_lead(lead_id, **patch)
+
+
+def _lead_card(lead: dict, settings: dict, expanded: bool = False) -> None:
+    lid = lead["id"]
+    name = lead.get("store_name") or lead.get("domain") or f"row {lid}"
+    with st.expander(f"{name}  ·  {_state_badge(lead)}", expanded=expanded):
+        if lead.get("error"):
+            st.error(lead["error"])
+        if not lead.get("body"):
+            st.caption("No message for this store yet.")
+            if lead.get("flags"):
+                st.caption("Notes: " + " · ".join(lead["flags"]))
+            return
+
+        subject = st.text_input("Subject", value=lead.get("subject", ""), key=f"subj_{lid}")
+        if lead.get("subjects"):
+            st.caption("Other options: " + " | ".join(f"`{s}`" for s in lead["subjects"][1:]))
+
+        body = st.text_area("Message", value=lead.get("body", ""), height=230, key=f"body_{lid}")
+        st.caption(f"{len(body.split())} words · {lead.get('engine') or 'template'}"
+                   + (f" · hook: {lead.get('notes', '')[:90]}" if lead.get("notes") else ""))
+
+        # Everything lives in one row: the two ways to open the draft, then the
+        # three buttons worth keeping at arm's length. The long tail went into
+        # "⋯", which is what made these cards three rows tall.
+        to = lead.get("email") or ""
+        a, b, c, d, e = st.columns([1.2, 1.0, 0.72, 0.98, 0.68])
+        if to:
+            a.markdown(_mail_anchor(lid, mailto_url(to, subject, body), "✉️ Open draft", primary=True))
+            b.markdown(_mail_anchor(lid, gmail_url(to, subject, body), "Gmail web"))
+        else:
+            a.button("No email", disabled=True, use_container_width=True, key=f"noemail_{lid}")
+        if c.button("💾 Save", key=f"save_{lid}", use_container_width=True,
+                    help="Save the subject and body you just edited."):
+            db.update_lead(lid, subject=subject, body=body)
+            st.success("Saved")
+        if d.button("🔁 Rewrite", key=f"re_{lid}", use_container_width=True,
+                    help="Write this one again from the crawled facts."):
+            facts = lead.get("facts") or {}
+            facts["signal_phrases"] = crawler.signal_phrases(facts.get("signals") or [])
+            facts["strong_signals"] = crawler.strong_signal_phrases(facts.get("signals") or [])
+            with st.spinner("Rewriting..."):
+                composed = run_async(composer.compose(
+                    facts, settings,
+                    store_hint=facts.get("store_name") or lead.get("store_name") or "there"))
+            subs = composed.get("subjects") or [composer.local_subject_for(facts, settings)]
+            db.update_lead(lid, subject=subs[0], body=composed.get("body", ""),
+                           subjects=subs, engine=composed.get("engine", ""),
+                           notes=(composed.get("hook") or "")[:300])
+            st.rerun()
+        if e.button("✅ Sent", key=f"sent_{lid}", use_container_width=True,
+                    help="Confirm you pressed send. Moves the row to Sent."):
+            mark_sent(lid)
+            st.rerun()
+
+        more, _spacer = st.columns([1, 5])
+        with more:
+            with st.popover("⋯"):
+                st.markdown("**Copy**")
+                st.code(f"Subject: {subject}\n\n{body}", language=None)
+                if lead.get("facts"):
+                    st.markdown("**What we found**")
+                    facts = lead["facts"]
+                    for k, v in (
+                        ("Store", facts.get("store_name")), ("Tagline", facts.get("tagline")),
+                        ("Location", facts.get("location")), ("Founded", facts.get("founded_year")),
+                        ("Founder", facts.get("founder_name")),
+                        ("Price range", facts.get("price_range")),
+                        ("Signals", ", ".join(facts.get("signals") or [])),
+                        ("Products", " · ".join(
+                            pr.get("title", "") for pr in (facts.get("products") or [])[:6])),
+                    ):
+                        if v:
+                            st.markdown(f"- **{k}:** {v}")
+                    st.markdown("**Pages read**")
+                    for pg in (lead["facts"].get("pages_crawled") or []):
+                        st.markdown(f"- `{pg.get('status')}` {pg.get('label')} — {pg.get('url')}")
+                if db.state_of(lead) == "opened":
+                    if st.button("↩ Back to To send", key=f"back_{lid}", use_container_width=True,
+                                 help="Undo: forgets that the draft was opened."):
+                        db.unmark_opened(lid)
+                        st.rerun()
+                elif to:
+                    if st.button("Mark as opened", key=f"opened_{lid}", use_container_width=True,
+                                 help="Only needed if your browser blocked the automatic "
+                                      "move after you opened a draft."):
+                        db.mark_opened(lid)
+                        st.rerun()
+
+        # Plumbing, not a control: the tracker script clicks this on your behalf
+        # so Python learns which row was opened. Hidden by CSS.
+        if to:
+            st.checkbox(f"__open_{lid}__", key=f"openchk_{lid}", label_visibility="collapsed",
+                        on_change=_on_draft_opened, args=(lid,))
+
+
 def tab_review(settings: dict) -> None:
     leads = leads_as_rows()
     if not leads:
         st.info("Nothing yet. Add a list, then crawl it.")
         return
 
-    ready = [l for l in leads if l.get("status") in ("ready", "sent")]
-    pending = [l for l in leads if l.get("status") == "ready"]
-    failed = [l for l in leads if l.get("status") == "failed"]
+    st.markdown(
+        _MAIL_CSS.replace("__PRIMARY__", str(st.get_option("theme.primaryColor") or "#ff4b4b")),
+        unsafe_allow_html=True,
+    )
+
+    groups: dict[str, list[dict]] = {k: [] for k, _t, _n in REVIEW_SECTIONS}
+    for l in leads:
+        groups[db.state_of(l)].append(l)
+    written = groups["to_send"] + groups["opened"] + groups["sent"]
 
     cols = st.columns(4)
-    cols[0].metric("Stores", len(leads))
-    cols[1].metric("Ready", len(ready))
-    cols[2].metric("To send", len(pending))
-    cols[3].metric("Failed", len(failed))
+    cols[0].metric("To send", len(groups["to_send"]))
+    cols[1].metric("Opened", len(groups["opened"]),
+                   help="Draft opened, send never confirmed.")
+    cols[2].metric("Sent", len(groups["sent"]))
+    cols[3].metric("Failed", len(groups["failed"]))
 
-    if ready:
-        st.download_button(
-            "⬇︎ Download the tappable outbox page",
-            data=build_outbox_html([lead_to_outbox_entry(l) for l in ready], settings),
-            file_name="outbox.html", mime="text/html",
-            help="A page where every store is a card with an 'Open in Gmail' button. "
+    if written:
+        d1, d2 = st.columns(2)
+        d1.download_button(
+            "⬇︎ Tappable outbox page",
+            data=build_outbox_html([lead_to_outbox_entry(l) for l in written], settings),
+            file_name="outbox.html", mime="text/html", use_container_width=True,
+            help="A page where every store is a card with an 'Open draft' button. "
                  "Easiest way to send from a phone - open it in Chrome.",
         )
-        st.download_button(
-            "⬇︎ Download CSV of all messages",
-            data=export_csv(ready), file_name="messages.csv", mime="text/csv",
+        d2.download_button(
+            "⬇︎ CSV of all messages",
+            data=export_csv(written), file_name="messages.csv", mime="text/csv",
+            use_container_width=True,
         )
 
     st.divider()
-    show = st.radio("Show", ["Ready to send", "Failed", "Everything"], horizontal=True,
-                    label_visibility="collapsed", key="revfilter")
-    if show.startswith("Ready"):
-        view = ready
-    elif show.startswith("Failed"):
-        view = failed
-    else:
-        view = leads
+    st.caption("Opening a draft moves that store into **Opened** by itself, so the "
+               "list always shows what is left.")
 
-    if not view:
-        st.info("Nothing in that group.")
-        return
+    for key, title, note in REVIEW_SECTIONS:
+        rows = groups[key]
+        if not rows:
+            continue
+        st.markdown(f"#### {title} &nbsp;`{len(rows)}`", unsafe_allow_html=True)
+        if note:
+            st.caption(note)
+        for lead in rows:
+            _lead_card(lead, settings,
+                       expanded=(key == "to_send" and len(rows) == 1))
+        st.markdown("&nbsp;", unsafe_allow_html=True)
 
-    for lead in view:
-        label = f"{lead.get('store_name') or lead.get('domain') or '?'}  ·  {STATUS_LABEL.get(lead.get('status',''),'')}"
-        with st.expander(label, expanded=(len(view) == 1)):
-            if lead.get("error"):
-                st.error(lead["error"])
-            if not lead.get("body"):
-                st.caption("No message for this store yet.")
-                if lead.get("flags"):
-                    st.caption("Notes: " + " · ".join(lead["flags"]))
-                continue
-
-            subject = st.text_input("Subject", value=lead.get("subject", ""),
-                                    key=f"subj_{lead['id']}")
-            if lead.get("subjects"):
-                st.caption("Other options: " + " | ".join(f"`{s}`" for s in lead["subjects"][1:]))
-
-            body = st.text_area("Message", value=lead.get("body", ""), height=230,
-                                key=f"body_{lead['id']}")
-            words = len(body.split())
-            st.caption(f"{words} words · {lead.get('engine') or 'template'}"
-                       + (f" · hook: {lead.get('notes','')[:90]}" if lead.get("notes") else ""))
-
-            a, b, c, d = st.columns([1.1, 1, 1, 1])
-            to = lead.get("email") or ""
-            if to:
-                a.link_button("Open in Gmail", gmail_url(to, subject, body), use_container_width=True)
-            else:
-                a.button("No email address", disabled=True, use_container_width=True,
-                         key=f"noemail_{lead['id']}")
-            if b.button("Save edits", key=f"save_{lead['id']}", use_container_width=True):
-                db.update_lead(lead["id"], subject=subject, body=body)
-                st.success("Saved")
-            if c.button("Rewrite", key=f"re_{lead['id']}", use_container_width=True):
-                facts = lead.get("facts") or {}
-                facts["signal_phrases"] = crawler.signal_phrases(facts.get("signals") or [])
-                facts["strong_signals"] = crawler.strong_signal_phrases(facts.get("signals") or [])
-                with st.spinner("Rewriting..."):
-                    composed = run_async(composer.compose(
-                        facts, settings,
-                        store_hint=facts.get("store_name") or lead.get("store_name") or "there"))
-                subs = composed.get("subjects") or [composer.local_subject_for(facts, settings)]
-                db.update_lead(lead["id"], subject=subs[0], body=composed.get("body", ""),
-                               subjects=subs, engine=composed.get("engine", ""),
-                               notes=(composed.get("hook") or "")[:300])
-                st.rerun()
-            if d.button("Mark sent", key=f"sent_{lead['id']}", use_container_width=True):
-                mark_sent(lead["id"])
-                st.rerun()
-
-            if to:
-                st.markdown(
-                    f'<a href="{mailto_url(to, subject, body)}" style="font-size:0.85rem">'
-                    f"open in your mail app instead</a>",
-                    unsafe_allow_html=True,
-                )
-            with st.popover("Copy subject and body"):
-                st.code(f"Subject: {subject}\n\n{body}", language=None)
-
-            if lead.get("facts"):
-                with st.popover("What we found"):
-                    facts = lead["facts"]
-                    for k, v in (
-                        ("Store", facts.get("store_name")), ("Tagline", facts.get("tagline")),
-                        ("Location", facts.get("location")), ("Founded", facts.get("founded_year")),
-                        ("Founder", facts.get("founder_name")), ("Price range", facts.get("price_range")),
-                        ("Signals", ", ".join(facts.get("signals") or [])),
-                        ("Products", " · ".join(p.get("title", "") for p in (facts.get("products") or [])[:6])),
-                    ):
-                        if v:
-                            st.markdown(f"**{k}:** {v}")
-                with st.popover("Pages read"):
-                    for p in (lead["facts"].get("pages_crawled") or []):
-                        st.markdown(f"- `{p.get('status')}` {p.get('label')} — {p.get('url')}")
+    # Rendered last, so every anchor above already exists when it starts looking.
+    # st.iframe is the supported replacement for components.v1.html (which is
+    # past its removal date); it embeds the HTML string in an iframe that keeps
+    # JavaScript and same-origin access, which is what the tracker needs.
+    st.iframe(_OPEN_TRACKER_JS, height=1)
 
 
 def export_csv(leads: list[dict]) -> str:

@@ -206,6 +206,7 @@ team@allbirds.com | allbirds.com"></textarea>
       <div>
         <h3 id="dStore">—</h3>
         <p id="dEmail" class="muted"></p>
+        <span id="dState" class="pill"></span>
       </div>
       <button class="x" data-close-drawer>&times;</button>
     </div>
@@ -231,15 +232,16 @@ team@allbirds.com | allbirds.com"></textarea>
             <span class="hint" id="dEngine"></span>
           </div>
         </div>
+        <!-- One grid instead of two stacked rows: every action is the same size,
+             nothing wraps to a third line, and the whole block is shorter. -->
         <div class="drawer-actions">
           <button class="btn btn-primary" id="btnSendMail">Open in my email app</button>
-          <button class="btn btn-ghost" id="btnSendGmail">Open in Gmail web</button>
-          <button class="btn btn-ghost" id="btnCopy">Copy</button>
-        </div>
-        <div class="drawer-actions">
-          <button class="btn btn-ghost btn-sm" id="btnRegen">Rewrite this one</button>
+          <button class="btn" id="btnSendGmail">Open in Gmail web</button>
+          <button class="btn" id="btnMarkSent">Mark as sent</button>
+          <button class="btn btn-ghost btn-sm" id="btnBackToSend">Back to to-send</button>
+          <button class="btn btn-ghost btn-sm" id="btnCopy">Copy</button>
           <button class="btn btn-ghost btn-sm" id="btnSaveDraft">Save edits</button>
-          <button class="btn btn-ghost btn-sm" id="btnMarkSent">Mark as sent</button>
+          <button class="btn btn-ghost btn-sm" id="btnRegen">Rewrite this one</button>
           <button class="btn btn-ghost btn-sm" id="btnRecrawl">Re-crawl site</button>
         </div>
         <p class="hint" id="dShot"></p>

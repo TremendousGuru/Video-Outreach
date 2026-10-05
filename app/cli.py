@@ -234,8 +234,9 @@ def build_outbox_html(entries: list[dict], settings: dict) -> str:
             )
         else:
             action = (
-                f'<a class="btn" href="{e(mailto_url(to, subject, body))}">Open in Gmail</a>'
-                f'<a class="btn ghost" href="{e(gmail_url(to, subject, body))}" target="_blank" rel="noopener">Gmail web</a>'
+                f'<a class="btn" href="{e(mailto_url(to, subject, body))}" data-open="{i}">Open in mail app</a>'
+                f'<a class="btn ghost" href="{e(gmail_url(to, subject, body))}" target="_blank" '
+                f'rel="noopener" data-open="{i}">Gmail web</a>'
             )
         alternates = "".join(
             f'<li>{e(s)}</li>' for s in (item.get("subjects") or [])[1:]
@@ -256,6 +257,7 @@ def build_outbox_html(entries: list[dict], settings: dict) -> str:
 
         cards.append(f"""
     <article class="card" id="c{i}">
+      <div class="ribbon">Opened already &mdash; check before emailing again</div>
       <header>
         <div>
           <h2>{e(item.get("store_name") or item.get("domain") or "store")}</h2>
@@ -316,9 +318,11 @@ def build_outbox_html(entries: list[dict], settings: dict) -> str:
   pre.body {{ background:#0e1116; border:1px solid #1c222b; border-radius:10px; padding:12px;
              white-space:pre-wrap; word-wrap:break-word; font:14.5px/1.6 -apple-system,Roboto,Helvetica,sans-serif;
              margin:0 0 12px; color:#dfe4ea; }}
-  .actions {{ display:flex; flex-wrap:wrap; gap:8px; }}
-  .btn {{ display:inline-block; background:#5eead4; color:#052e2b; text-decoration:none; font-weight:700;
-         padding:13px 18px; border-radius:10px; border:0; font-size:15px; cursor:pointer; }}
+  .actions {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }}
+  @media (min-width:560px) {{ .actions {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} }}
+  .btn {{ display:block; background:#5eead4; color:#052e2b; text-decoration:none; font-weight:700;
+         padding:13px 8px; border-radius:10px; border:0; font-size:14.5px; cursor:pointer;
+         text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .btn.ghost {{ background:transparent; color:#e6e9ee; border:1px solid #2e3641; font-weight:500; }}
   .btn[disabled] {{ opacity:.4; }}
   .warn {{ background:#2a1e08; border:1px solid #6b4a12; color:#fbbf24; padding:10px; border-radius:9px;
@@ -331,16 +335,40 @@ def build_outbox_html(entries: list[dict], settings: dict) -> str:
   .failed ul {{ margin:0; padding-left:18px; color:#b9c2cf; font-size:14px; }}
   .done {{ opacity:.45; }}
   .done .btn {{ pointer-events:none; }}
+  /* A card whose draft was already opened. It moves to its own section at the
+     bottom, so "have I emailed this one?" is answered by where the card sits. */
+  .card.opened {{ border-color:#6b4a12; opacity:.62; }}
+  .card.opened .ribbon {{ display:block; }}
+  .ribbon {{ display:none; font:11px/1 ui-monospace,monospace; color:#fbbf24; background:#2a1e08;
+            border-radius:99px; padding:5px 9px; margin-bottom:10px; }}
+  .sectitle {{ display:flex; align-items:baseline; gap:9px; margin:22px 0 12px; font-size:15px;
+              color:#e6e9ee; }}
+  .sectitle:first-child {{ margin-top:0; }}
+  .sectitle .cnt {{ font:12px/1 ui-monospace,monospace; color:#8b95a5; border:1px solid #2e3641;
+                   border-radius:99px; padding:4px 9px; }}
+  .sectitle small {{ font-weight:400; color:#6f7987; font-size:12px; }}
+  .hidden {{ display:none; }}
   footer {{ color:#6f7987; font-size:12px; text-align:center; padding:8px 0 40px; }}
 </style>
 </head>
 <body>
   <div class="top">
     <h1>{len(ready)} message{'s' if len(ready) != 1 else ''} ready to send</h1>
-    <p>Tap a button to open it in your email app with everything filled in.</p>
+    <p>Tap a button to open it in your email app with everything filled in.
+       <span id="counts"></span></p>
   </div>
   <div class="wrap">
-    {''.join(cards) or '<p class="meta">Nothing ready yet.</p>'}
+    <h2 class="sectitle" id="toSendTitle">To send <span class="cnt" id="toSendCount">0</span></h2>
+    <div id="toSend">
+      {''.join(cards) or '<p class="meta">Nothing ready yet.</p>'}
+    </div>
+    <div id="openedWrap" class="hidden">
+      <h2 class="sectitle">Opened <span class="cnt" id="openedCount">0</span>
+        <small>you tapped these already</small></h2>
+      <p class="meta small">You opened these drafts on this device. Check whether you actually
+         pressed send &mdash; then tap &ldquo;Sent&rdquo; so the card stops nagging you.</p>
+      <div id="opened"></div>
+    </div>
     {failed_html}
     <footer>
       Generated {time.strftime('%d %b %Y, %H:%M')}{(' &middot; ' + e(sender)) if sender else ''}<br>
@@ -362,17 +390,57 @@ document.querySelectorAll('[data-copy]').forEach(function (btn) {{
   }});
 }});
 
-// "Sent" marks a card done so you don't email the same store twice.
-// Remembered on this device via localStorage; if that's unavailable the tick
-// still works, it just won't survive a reload.
+// Everything below is remembered on this device via localStorage. A downloaded
+// page has no server to ask what you already did, so the browser is the only
+// place that knows. If localStorage is unavailable the taps still work, they
+// just will not survive a reload.
+function loadList(key) {{
+  try {{ return JSON.parse(localStorage.getItem(key) || '[]'); }} catch (e) {{ return []; }}
+}}
+function storeList(key, list) {{
+  try {{ localStorage.setItem(key, JSON.stringify(list)); }} catch (e) {{}}
+}}
 var KEY = 'outreach-sent-v1';
-function loadSent() {{
-  try {{ return JSON.parse(localStorage.getItem(KEY) || '[]'); }} catch (e) {{ return []; }}
+var OPEN_KEY = 'outreach-opened-v1';
+var sent = loadList(KEY);
+var opened = loadList(OPEN_KEY);
+
+// Cards are identified by domain, not by position, so the memory survives a
+// page that was regenerated with the stores in a different order.
+function cardKey(card) {{
+  var meta = card.querySelector('.meta');
+  var domain = meta ? (meta.innerText.split('\\u00b7')[1] || '').trim() : '';
+  return domain || card.querySelector('h2').innerText.trim();
 }}
-function storeSent(list) {{
-  try {{ localStorage.setItem(KEY, JSON.stringify(list)); }} catch (e) {{}}
+
+function recount() {{
+  var left = document.querySelectorAll('#toSend .card:not(.opened)').length;
+  var done = document.querySelectorAll('#opened .card').length;
+  document.getElementById('toSendCount').textContent = left;
+  document.getElementById('openedCount').textContent = done;
+  document.getElementById('openedWrap').classList.toggle('hidden', done === 0);
+  document.getElementById('counts').textContent = done ? ' &middot; ' + done + ' already opened' : '';
 }}
-var sent = loadSent();
+
+// Opening the draft is not sending it - but it is enough to move the card out
+// of the way. The point is never opening the same store twice by accident.
+function markOpened(card) {{
+  if (!card || card.classList.contains('opened')) return;
+  card.classList.add('opened');
+  document.getElementById('opened').appendChild(card);
+  var k = cardKey(card);
+  if (opened.indexOf(k) === -1) {{ opened.push(k); storeList(OPEN_KEY, opened); }}
+  recount();
+}}
+
+document.querySelectorAll('[data-open]').forEach(function (a) {{
+  a.addEventListener('click', function () {{ markOpened(a.closest('.card')); }});
+}});
+
+// Re-apply what this device already tapped.
+document.querySelectorAll('#toSend .card').forEach(function (card) {{
+  if (opened.indexOf(cardKey(card)) !== -1) markOpened(card);
+}});
 
 function paint(btn, id, isSent) {{
   var card = document.getElementById(id);
@@ -382,16 +450,18 @@ function paint(btn, id, isSent) {{
 
 document.querySelectorAll('[data-sent]').forEach(function (btn) {{
   var id = 'c' + btn.dataset.sent;
-  var domain = (document.getElementById(id).querySelector('.meta').innerText.split('\u00b7')[1] || '').trim();
+  var domain = cardKey(document.getElementById(id));
   var marked = sent.indexOf(domain) !== -1;
   paint(btn, id, marked);
   btn.addEventListener('click', function () {{
     var isSent = sent.indexOf(domain) === -1;
     if (isSent) {{ sent.push(domain); }} else {{ sent = sent.filter(function (d) {{ return d !== domain; }}); }}
-    storeSent(sent);
+    storeList(KEY, sent);
     paint(btn, id, isSent);
   }});
 }});
+
+recount();
 </script>
 </body>
 </html>
