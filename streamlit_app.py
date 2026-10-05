@@ -62,9 +62,60 @@ def _bridge_secrets() -> None:
 
 _bridge_secrets()
 
+
+# ---------------------------------------------------------------------------
+# Streamlit Cloud pulls a push into the running container but does not restart
+# the process. This main script is re-executed from disk on the next rerun, so
+# it is the NEW code - while app/*.py is still the cached module objects from
+# the build the process started with. The result is an AttributeError on a
+# function that plainly exists in the repo, and it only clears when someone
+# presses Reboot. So: re-execute any app module whose file changed after this
+# process started. reload() writes into the existing module object, so the
+# `from . import db` references held by app/pipeline.py and friends keep
+# pointing at the refreshed code.
+def _refresh_app_modules() -> list[str]:
+    import importlib
+    import sys
+
+    import app as pkg
+
+    boot = getattr(pkg, "_boot_time", None)
+    if boot is None:
+        boot = pkg._boot_time = time.time()
+
+    stale = []
+    for name, mod in list(sys.modules.items()):
+        if not name.startswith("app."):
+            continue
+        path = getattr(mod, "__file__", "") or ""
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            # +1s of slack: a fresh clone is written a moment before the process
+            # starts, and this must not read as "changed since boot".
+            if os.path.getmtime(path) > boot + 1:
+                stale.append(name)
+        except OSError:
+            continue
+
+    for name in stale:
+        try:
+            importlib.reload(sys.modules[name])
+        except Exception:  # noqa: BLE001 - a stale module beats no module
+            pass
+    return stale
+
+
+_refresh_app_modules()
+
 from app import compose as composer  # noqa: E402
 from app import crawler, db, ingest  # noqa: E402
 from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
+
+# Shown in the sidebar so "is the new build actually running?" has an answer
+# you can check on a phone instead of guessing from behaviour.
+BUILD = "2026-10-05 · opened-draft sections"
+
 
 # Every one of these speaks the OpenAI chat-completions shape, so the only thing
 # that changes is the address and the model name. Keeping them here means the
@@ -533,6 +584,7 @@ def sidebar_settings() -> dict:
                     icon="✍️")
         st.caption(f"Requests go to {endpoint or '(no endpoint set)'} · keys cannot be "
                    "entered, viewed or changed from this interface.")
+        st.caption(f"build {BUILD}")
         if _key and st.button(
             "Test the key", use_container_width=True,
             help="Sends one small request, so you find out now instead of halfway "
