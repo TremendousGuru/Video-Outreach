@@ -73,17 +73,47 @@ _bridge_secrets()
 # process started. reload() writes into the existing module object, so the
 # `from . import db` references held by app/pipeline.py and friends keep
 # pointing at the refreshed code.
+def _process_started_at() -> float:
+    """Wall-clock time this process began.
+
+    /proc/self/stat field 22 is starttime in clock ticks since boot; with
+    /proc/uptime that gives the process age with no dependency. This has to be
+    the real process start and not "when this function first ran": the app was
+    already broken by a pull that landed before this code existed, and a
+    baseline stamped on first run would sit after that pull and see the new
+    files as unchanged.
+
+    Where /proc is unavailable (macOS, Windows) this returns now(), which makes
+    the check conservative - it reloads nothing rather than everything. Local
+    runs have Streamlit's own file watcher anyway.
+    """
+    try:
+        with open("/proc/uptime") as f:
+            uptime = float(f.read().split()[0])
+        with open("/proc/self/stat") as f:
+            fields = f.read().rsplit(")", 1)[1].split()
+        ticks = os.sysconf("SC_CLK_TCK")
+        return time.time() - uptime + int(fields[19]) / ticks
+    except Exception:  # noqa: BLE001 - no /proc, no arithmetic, nothing reloaded
+        return time.time()
+
+
 def _refresh_app_modules() -> list[str]:
     import importlib
     import sys
 
     import app as pkg
 
-    boot = getattr(pkg, "_boot_time", None)
-    if boot is None:
-        boot = pkg._boot_time = time.time()
+    boot = _process_started_at()
+    # A pushed file stays newer than the process start forever, so "newer than
+    # boot" alone would re-execute every module on every rerun - and reloading
+    # app.db throws away its cached SQLite connection each time. Remember what
+    # was already picked up and only react to a mtime that actually moved.
+    seen = getattr(pkg, "_reloaded_mtimes", None)
+    if seen is None:
+        seen = pkg._reloaded_mtimes = {}
 
-    stale = []
+    stale: list[tuple[str, float]] = []
     for name, mod in list(sys.modules.items()):
         if not name.startswith("app."):
             continue
@@ -91,19 +121,23 @@ def _refresh_app_modules() -> list[str]:
         if not path or not os.path.isfile(path):
             continue
         try:
-            # +1s of slack: a fresh clone is written a moment before the process
-            # starts, and this must not read as "changed since boot".
-            if os.path.getmtime(path) > boot + 1:
-                stale.append(name)
+            mtime = os.path.getmtime(path)
         except OSError:
             continue
+        # +1s of slack: a fresh clone is written a moment before the process
+        # starts, and that must not read as "changed since boot".
+        if mtime > seen.get(name, boot) + 1:
+            stale.append((name, mtime))
 
-    for name in stale:
+    done = []
+    for name, mtime in stale:
         try:
             importlib.reload(sys.modules[name])
         except Exception:  # noqa: BLE001 - a stale module beats no module
-            pass
-    return stale
+            continue
+        seen[name] = mtime
+        done.append(name)
+    return done
 
 
 _refresh_app_modules()
@@ -114,7 +148,7 @@ from app.cli import build_outbox_html, gmail_url, mailto_url  # noqa: E402
 
 # Shown in the sidebar so "is the new build actually running?" has an answer
 # you can check on a phone instead of guessing from behaviour.
-BUILD = "2026-10-05c · sections + write-later switch + full settings"
+BUILD = "2026-10-05d · self-healing reload + full settings"
 
 
 # Every one of these speaks the OpenAI chat-completions shape, so the only thing
